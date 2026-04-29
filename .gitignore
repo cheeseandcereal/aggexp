@@ -1,6 +1,11 @@
 # Generated certs (per deploy/certs/README hack/gen-certs.sh)
 deploy/certs/
 
+# apiserver-library self-signed certs (created by test runs that
+# default-initialize SecureServingOptionsWithLoopback)
+apiserver.local.config/
+**/apiserver.local.config/
+
 # Environment files (may contain secrets)
 .env
 **/.env
@@ -25,6 +30,9 @@ experiments/0004-github-driver-static-pat/0004-github-driver-static-pat
 experiments/0004-github-driver-static-pat/aggexp-repos
 experiments/0004-github-driver-static-pat/cmd/aggexp-repos/aggexp-repos
 experiments/0004-github-driver-static-pat/policy-service/policy-service
+experiments/0007-runtime-fs-driver/0007-runtime-fs-driver
+experiments/0007-runtime-fs-driver/aggexp-files
+experiments/0007-runtime-fs-driver/cmd/aggexp-files/aggexp-files
 
 # OS / editor noise
 .DS_Store

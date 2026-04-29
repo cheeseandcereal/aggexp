@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggexp
+  template:
+    metadata:
+      labels:
+        app: aggexp
+    spec:
+      serviceAccountName: aggexp
+      containers:
+        - name: aggexp
+          image: ${AGGEXP_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/etc/aggexp/certs/tls.crt
+            - --tls-private-key-file=/etc/aggexp/certs/tls.key
+            - --bind-address=0.0.0.0
+            - --secure-port=8443
+            - --enable-priority-and-fairness=false
+            - --fs-root=/etc/aggexp-sample-files
+            - --fs-poll-interval=5s
+            - --v=2
+          ports:
+            - name: https
+              containerPort: 8443
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/aggexp/certs
+              readOnly: true
+            - name: sample-files
+              mountPath: /etc/aggexp-sample-files
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: aggexp-serving-cert
+        - name: sample-files
+          configMap:
+            name: aggexp-sample-files
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aggexp-sample-files
+  namespace: aggexp-system
+data:
+  readme.txt: |
+    This file is projected by the aggexp-files aggregated apiserver
+    as a resource of kind File in group aggexp.io/v1.
+  haiku.txt: |
+    files as resources
+    kubectl lists the bytes on disk
+    substrate works nicely
+  notes.md: |
+    # Aggexp 0007
+
+    Every file in this ConfigMap appears as a File resource.
