@@ -10,6 +10,10 @@ deploy/certs/
 /out/
 *.test
 *.out
+# Go binaries in experiment dirs. `go build` names the binary after the
+# module's last path segment, which by our convention matches the
+# experiment directory's basename. Each experiment adds its own entry.
+experiments/0001-raw-http-aggregation/0001-raw-http-aggregation
 
 # OS / editor noise
 .DS_Store

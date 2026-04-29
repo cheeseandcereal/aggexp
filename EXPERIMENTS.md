@@ -23,7 +23,8 @@ Items without an `NNNN` prefix are candidates not yet started.
 
 **`0001-raw-http-aggregation`** — hand-rolled Go `net/http` probe. No
 `k8s.io/apiserver`. Tests the minimum wire contract the aggregation
-layer and kubectl actually demand. Status: in-progress.
+layer and kubectl actually demand. Status: complete. See
+`FINDINGS/0001-raw-http-aggregation.md`.
 
 - `hello-aggregated` — smallest real aggregated apiserver using
   `k8s.io/apiserver`. Read/write Hello resource, watch via
@@ -35,6 +36,14 @@ layer and kubectl actually demand. Status: in-progress.
   breaks, what works, what the field-manager story looks like.
 - `protobuf-probe` — can we serve `application/vnd.kubernetes.protobuf`
   for basic kinds? Does it matter?
+- `openapi-explain-minimum` — narrow probe: what is the minimum
+  OpenAPI v3 shape that makes `kubectl explain` work? Derived from
+  `0001`'s observation that `explain` fails on a structurally-valid
+  but GVR-less schema.
+- `watch-table-rendering` — (consequent-leaning) why does kubectl's
+  `-w` mode render a different table schema between renders when
+  only `BOOKMARK`s are emitted? Does emitting real `MODIFIED` events
+  smooth it out? Derived from `0001`.
 
 ## Identity handoff
 
@@ -71,6 +80,11 @@ layer and kubectl actually demand. Status: in-progress.
 - `sar-delegation-compare` — compare AA with delegated
   `SubjectAccessReview` authz vs. AA with custom authorizer. Observe
   what each enables and constrains.
+- `rbac-permissive-aa` — AA deployed with permissive upstream
+  ClusterRole so the AA's authorizer becomes the real decision point.
+  Probes "can-i" / SelfSubjectRulesReview UX when authz happens in
+  the AA, not RBAC. Derived from `0001`'s observation that RBAC gates
+  requests before they reach the AA.
 
 ## Resource modeling freedom
 

@@ -72,9 +72,10 @@ Secret that this overlay assumes already exist. This experiment's
 
 ## Status
 
-in-progress
+complete
 
-<!-- complete when FINDINGS is written after the probe actually runs -->
+<!-- See FINDINGS/0001-raw-http-aggregation.md for results. -->
+
 
 ## Decisions made
 
