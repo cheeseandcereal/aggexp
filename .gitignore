@@ -1,0 +1,29 @@
+# Generated certs (per deploy/certs/README hack/gen-certs.sh)
+deploy/certs/
+
+# Environment files (may contain secrets)
+.env
+**/.env
+!**/.env.example
+
+# Build artifacts
+/out/
+*.test
+*.out
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+
+# Go
+vendor/
+
+# Bootstrap seed (retained intentionally; remove only when rewriting seed commit)
+# (no ignore; .aggexp-init/.gitkeep is tracked)
