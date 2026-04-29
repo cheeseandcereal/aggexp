@@ -38,6 +38,12 @@ else
 fi
 export CA_BUNDLE
 
+# envsubst doesn't honor ${VAR:-default} syntax; pre-set defaults for any
+# variable referenced bare in the manifests. Experiments override by
+# setting AGGEXP_IMAGE (and any future AGGEXP_* vars) before calling us.
+: "${AGGEXP_IMAGE:=aggexp:dev}"
+export AGGEXP_IMAGE
+
 # Upsert serving-cert secret. `kubectl apply` on a generated secret via
 # --dry-run=client lets this be idempotent without read-modify-write dance.
 kubectl create secret tls "${SECRET}" \
