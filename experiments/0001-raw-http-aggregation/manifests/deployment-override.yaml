@@ -1,0 +1,56 @@
+# Phase 0 probe Deployment override.
+#
+# This is a FULL Deployment — not a strategic-merge patch — and replaces the
+# one in deploy/manifests/40-deployment.yaml. The base manifests
+# (namespace, ServiceAccount, RBAC, Service, APIService, serving cert
+# secret) must already be applied. This overlay only changes the image to
+# aggexp-probe-0001:dev and drops args (the probe uses flag defaults that
+# match our setup).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggexp
+  template:
+    metadata:
+      labels:
+        app: aggexp
+    spec:
+      serviceAccountName: aggexp
+      containers:
+        - name: aggexp
+          image: aggexp-probe-0001:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/aggexp/certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+              scheme: HTTPS
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8443
+              scheme: HTTPS
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: aggexp-serving-cert
