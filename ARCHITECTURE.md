@@ -11,71 +11,167 @@ architecture actually shifts.
 
 ## Current state
 
-**There is no substrate yet.**
+The first substrate promotion has landed. `runtime/` holds four
+packages, extracted from the shared shape between 0002-hello-
+aggregated (in-memory) and 0004-github-driver-static-pat (polling
+external). `drivers/` is still empty; no driver has been promoted
+because no two experiments have yet demanded an identically-shaped
+concrete backend.
 
-`runtime/` and `drivers/` exist as empty directories. No code has been
-promoted from experiments. This is expected and correct per the ethos:
-promotion happens only when two or more experiments have demanded the
-same abstraction, and at this point only one experiment exists
-(`0001-raw-http-aggregation`, a deliberately minimal probe).
+### `runtime/` package tree
 
-## Deployment shape (current)
+```
+runtime/
+├── README.md                 — layout guide
+├── server/                   — etcd-less Options + Config + Run
+│   ├── doc.go
+│   ├── options.go
+│   └── options_test.go
+├── authz/                    — external-HTTP-policy Authorizer
+│   ├── doc.go
+│   ├── authorizer.go
+│   └── authorizer_test.go
+├── storage/                  — Backend interface + rest.Storage adapter
+│   ├── doc.go
+│   ├── backend.go
+│   ├── adapter.go
+│   ├── helpers.go
+│   └── adapter_test.go
+└── group/                    — API-group installer
+    ├── doc.go
+    ├── group.go
+    └── group_test.go
+```
 
-While the substrate is empty, the lab's deployment shape is:
+Total substrate: ~1,030 lines of code + ~600 lines of tests.
+
+### Per-request request flow
+
+```
+kubectl
+   │  HTTPS (client cert validated by kube-apiserver)
+   ▼
+kube-apiserver (aggregation layer)
+   │  mTLS w/ aggregator client cert
+   │  X-Remote-User, X-Remote-Group, X-Remote-Extra-*
+   ▼
+extension apiserver (built on runtime/server)
+   │
+   ├─ DelegatingAuthenticator  (library)
+   │  │  user.Info in context
+   │  ▼
+   ├─ runtime/authz.Authorizer (first in union chain)
+   │  │  POST JSON to policy service
+   │  │  Allow / Deny / NoOpinion
+   │  ▼
+   └─ handler chain → endpoint filter → rest.Storage
+                                           │
+                                           ▼
+                                    runtime/storage.REST (adapter)
+                                           │
+                                           ├─ Get / List / Watch  → Backend
+                                           │
+                                           ├─ Create / Update /   → WritableBackend
+                                           │  Delete / Patch       (if backend implements it)
+                                           │
+                                           ├─ ConvertToTable       → Backend.Table*
+                                           │
+                                           └─ PublishAdded/
+                                              Modified/Deleted    (called by backend
+                                                                   polling loops; stamps
+                                                                   RV; fans out via
+                                                                   watch.Broadcaster)
+```
+
+### Backend → adapter contract
+
+```
+┌─────────────────────────┐         ┌───────────────────────────────┐
+│ experiment-owned        │         │ runtime/storage.REST          │
+│ Backend implementation  │ ──────► │   (rest.Storage + all the     │
+│  • New / NewList        │ wraps   │    rest.* interfaces the      │
+│  • Kind / SingularName  │         │    library demands)           │
+│  • NamespaceScoped      │         │                               │
+│  • Get / List           │         │   • owns watch.Broadcaster    │
+│  • TableColumns         │         │   • owns atomic.Uint64 RV     │
+│  • RowsFor              │         │   • stale-RV → 410 Gone       │
+│                         │         │   • label selector filter     │
+│  optionally:            │         │   • rest.Patcher (if Writable)│
+│  • Create / Update /    │ ◄────── │                               │
+│    Delete               │ gives   │   Publisher interface for     │
+│                         │ back    │   backends to push watch      │
+│                         │         │   events.                     │
+└─────────────────────────┘         └───────────────────────────────┘
+```
+
+### Deployment shape (unchanged)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  kind cluster (name: aggexp)                                │
+│  kind cluster                                               │
 │                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  namespace: default (kube-apiserver, etc.)            │  │
-│  │                                                       │  │
-│  │  ┌───────────────┐    APIService                      │  │
-│  │  │ kube-apiserver│ ─────────────┐   v1.aggexp.io      │  │
+│  │  namespace: default                                   │  │
+│  │  ┌───────────────┐    APIService v1.aggexp.io         │  │
+│  │  │ kube-apiserver│ ─────────────┐                     │  │
 │  │  └───────┬───────┘              │                     │  │
-│  │          │ aggregation layer    │                     │  │
-│  │          │ (mTLS w/ aggregator  │                     │  │
-│  │          │  client cert;        ▼                     │  │
-│  │          │  adds X-Remote-*)                          │  │
+│  │          │ aggregation (mTLS)   ▼                     │  │
 │  └──────────┼──────────────────────────────────────────  │  │
-│             │                                           │   │
-│             ▼                                           │   │
+│             ▼                                              │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  namespace: aggexp-system                             │  │
-│  │                                                       │  │
-│  │    Service: aggexp:443  ────►  Pod: aggexp            │  │
-│  │                                   (port 8443/HTTPS)   │  │
-│  │                                   serving the         │  │
-│  │                                   current experiment  │  │
+│  │    Service: aggexp:443 ──► Pod: aggexp (8443/HTTPS)   │  │
+│  │       binary: aggexp-<experiment>:dev                 │  │
+│  │       linked against:                                 │  │
+│  │         runtime/server  runtime/storage               │  │
+│  │         runtime/authz   runtime/group                 │  │
+│  │         + per-experiment scheme/types/backend         │  │
 │  │                                                       │  │
 │  │    Secret: aggexp-serving-cert                        │  │
-│  │    ServiceAccount: aggexp                             │  │
-│  │    ClusterRoleBinding: aggexp:system:auth-delegator   │  │
-│  │    RoleBinding (kube-system):                         │  │
-│  │      aggexp-auth-reader                               │  │
+│  │    ServiceAccount + RBAC                              │  │
+│  │                                                       │  │
+│  │    optional: policy-service Deployment                │  │
+│  │              (speaks runtime/authz's JSON protocol)   │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-The Deployment's image is what varies per experiment. The shared
-manifests in `deploy/manifests/` define the namespace, SA, RBAC,
-Service, and APIService; each experiment provides its own Deployment
-overlay in `experiments/NNNN-*/manifests/deployment-override.yaml`.
+The Deployment image and the per-experiment manifests vary;
+`deploy/manifests/` defines the namespace, SA, RBAC, Service, and
+APIService common to all experiments.
 
-## Anticipated substrate shape (not yet built)
+## What is *not* in runtime/
 
-Documented here as a *hypothesis*, not a commitment. The Driver
-interface sketched in the plan may prove wrong under experimental
-pressure; that's the point.
+- Per-group Schemes, types, install packages. Those stay with the
+  experiment that owns the type; the substrate is generic over
+  schemes.
+- Generated OpenAPI. Experiments run `openapi-gen` (or hand-copy from
+  a neighboring experiment) themselves; the substrate only accepts
+  the resulting `GetOpenAPIDefinitions` function.
+- Concrete drivers (filesystem, github, http). Those live with
+  experiments until two demand the same concrete shape.
+- A CLI entry point. Each experiment has its own `cmd/aggexp-<name>/
+  main.go`; the substrate exposes `Options.Run(ctx, serverName,
+  Input, installers, postStartHooks)`.
 
-- `runtime/server/` — genericapiserver wiring, TLS, options, health.
-- `runtime/auth/` — delegating authenticator helper; Authorizer
-  interface for per-request identity-based authz.
-- `runtime/storage/` — rest.Storage adapter over a driver.Driver,
-  watch broadcaster, synthetic resourceVersion scheme.
-- `runtime/driver/` — the Driver interface: what it means to be
-  "anything as a Kubernetes resource."
-- `drivers/fs/`, `drivers/github/`, `drivers/http/` — concrete
-  adapters.
+## Promotion history
 
-These will exist only when experimentation demands them.
+- **2026-04-29** — first promotion. Extracted `runtime/server`,
+  `runtime/authz`, `runtime/storage`, `runtime/group` from
+  0002+0004's shared shape. See
+  `FINDINGS/0007-runtime-fs-driver.md` for how the extracted
+  substrate behaved when driven by a new (filesystem) backend.
+
+## Anticipated next substrate work (not commitments)
+
+- `runtime/openapi/common.go` pre-generated meta/v1 + runtime +
+  version schemas so experiments carry only their own type
+  schemas. Waits until a second or third experiment feels the
+  pain of re-running openapi-gen.
+- `drivers/` opens when a second polling-based external-backend
+  driver shows up with a shape identical to 0004's github/. E.g.
+  if `http-driver` and `github-webhook-watch` both land, they may
+  share enough that a `drivers/polling/` helper becomes warranted.
+- `runtime/admission/` for validating/mutating admission when the
+  first experiment needs it (the 0003 finding flagged "name-based
+  CREATE policy is an admission concern, not authz").
