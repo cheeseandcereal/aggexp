@@ -58,9 +58,10 @@ SSA working out-of-the-box. Status: complete. See
 - **`0003-custom-authorizer-external-policy`** — (primary fundamental:
   per-request authz; also touches identity handoff). Status:
   complete. See `FINDINGS/0003-custom-authorizer-external-policy.md`.
-- `github-driver-static-pat` — aggregated API exposing GitHub repos
-  using a single static PAT. Identity is *observed* in logs, not yet
-  forwarded.
+- **`0004-github-driver-static-pat`** — aggregated API exposing
+  GitHub repos using a static PAT. Identity is observed in logs and
+  gated by the AA's authorizer; not yet forwarded to GitHub. Status:
+  complete. See `FINDINGS/0004-github-driver-static-pat.md`.
 - `identity-broker-github-app` — broker holding a GitHub App key;
   exchanges caller identity for a scoped installation token per
   request. The real identity-forwarding pattern.
@@ -75,12 +76,24 @@ SSA working out-of-the-box. Status: complete. See
 
 ## Storage independence
 
+- **`0004-github-driver-static-pat`** — (primary fundamental:
+  storage independence; also touches identity handoff and resource
+  modeling). Status: complete.
 - `fs-driver` — filesystem files exposed as a Kubernetes resource;
   fsnotify-driven watch; real writes to disk.
-- `in-memory-hello` — hello-level AA with ephemeral in-memory state
-  and broadcaster-based watch. Likely subsumed by `hello-aggregated`.
+- `in-memory-hello` — subsumed by `0002-hello-aggregated`. Retired.
 - `external-db-driver` — postgres-backed driver; real resourceVersion
   derived from a sequence.
+- `repo-uid-stability` — use a deterministic UID scheme derived
+  from the backend's stable ID and observe whether consumer
+  behavior after a pod restart improves. Derived from `0004`.
+- `github-rate-limit` — probe what happens when the poll loop
+  actually hits GitHub's rate limit. What does the AA log? What
+  do clients see? Does the cache go stale silently or visibly?
+  Derived from `0004`.
+- `github-webhook-watch` — feed GitHub push/PR events into the
+  watch broadcaster directly and skip (or reduce) polling.
+  Derived from `0004`.
 
 ## Per-request authorization
 
@@ -108,14 +121,19 @@ SSA working out-of-the-box. Status: complete. See
 ## Resource modeling freedom
 
 - `extract-runtime` — factor a `Driver` interface out of two
-  experiments that demanded the same shape. Precondition: at least
-  two drivers exist (e.g. `fs-driver` and `github-driver-static-pat`).
-  Not yet — `0002` is the only library-backed experiment.
+  experiments that demanded the same shape. Precondition now
+  satisfied: `0002-hello-aggregated` (in-memory) and
+  `0004-github-driver-static-pat` (external polling) share most
+  of the rest.Storage boilerplate. Ready when a third driver
+  adds pressure.
 - `http-driver` — generic HTTP endpoint as a Kubernetes resource.
   The "anything as a resource" stress test.
 - `grpc-as-resource` — expose a gRPC service through aggregation.
 - `virtual-composition` — an AA that projects a join of two underlying
   resources (kcp-style virtual workspace).
+- `name-aware-admission` — validating admission hook in the AA
+  enforcing name-based policy. Addresses the authz-vs-admission
+  boundary flagged by `0003`.
 
 ## Watch and consistency semantics
 
@@ -141,11 +159,20 @@ SSA working out-of-the-box. Status: complete. See
 
 ## MVP-example track
 
-**`example-e1-github-repos`** — the MVP-example scenario. `kubectl
-get repos` returns the caller's GitHub repos; identity-aware authz
-gates access; `kubectl get repos -w` streams updates. FINDINGS file
-documents what the exercise revealed.
+**`example-e1-github-repos`** — **complete**. See
+`FINDINGS/example-e1-github-repos.md`. Scenario:
+`kubectl get repos` returns a GitHub owner's repositories, gated
+by the AA's identity-aware authorizer, with live watch. Composed
+from experiments 0001–0004.
 
-This is a composition of several lab experiments; it lands only
-after its prerequisites are available (a real AA, a custom
-authorizer, the github driver, and watch).
+Possible follow-on examples (no commitment):
+
+- **E2**: `kubectl get repos` with **identity forwarding** — each
+  caller's action against GitHub is performed as that caller's
+  identity via the identity broker. Depends on
+  `identity-broker-github-app`.
+- **E3**: `kubectl apply` on a `Repo` creates a real GitHub
+  repository. Depends on E2 and on a resolution of the
+  authz-vs-admission boundary.
+- **E4**: ArgoCD syncs a `Repo` manifest from a Git repository.
+  Depends on `argocd-compat` first.

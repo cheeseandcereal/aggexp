@@ -18,12 +18,17 @@ provide the evidence.
 
 ## Current state
 
-Informed by three experiments:
+Informed by four experiments:
 - `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
 - `FINDINGS/0002-hello-aggregated` — library-backed (`k8s.io/apiserver`)
   stateless AA with read/write/watch + SSA.
 - `FINDINGS/0003-custom-authorizer-external-policy` — per-request
   identity-based authorization via an external HTTP policy service.
+- `FINDINGS/0004-github-driver-static-pat` — GitHub repos projected
+  as a read-only aggregated-API resource via a polling client.
+
+MVP-example (GitHub repos end-to-end) is complete; see
+`FINDINGS/example-e1-github-repos.md`.
 
 Remaining claims below without a `FINDINGS/*` reference are
 unvalidated.
@@ -102,33 +107,45 @@ Open questions:
 
 ## Storage independence
 
-**Confirmed: an aggregated apiserver does not require etcd** [`0002`].
-Replacing `RecommendedOptions.Etcd` with a bespoke Options struct
-(the pattern metrics-server uses) is clean. The library does not
-resist the etcd-less path; it simply doesn't advertise it. The cost
-is bounded:
+**Confirmed end-to-end against a real external system** [`0002`,
+`0004`]. The library does not require etcd: replacing
+`RecommendedOptions.Etcd` with a bespoke Options struct (the pattern
+metrics-server uses) is clean. For in-memory state, ~250 lines for
+`rest.Storage` implementation plus standard broadcaster wiring is
+enough. For external state (GitHub), the incremental cost is a
+small API client + a polling loop that diffs against the cache and
+emits synthetic events.
 
-- ~250 lines for the `rest.Storage` implementation itself (Get,
-  List, Create, Update, Delete, Watch, TableConvertor, plus identity
-  markers).
-- `watch.NewBroadcaster` handles watch fan-out.
-- A single `atomic.Uint64` stringified as decimal is an acceptable
-  resourceVersion scheme for kubectl and basic watches; stricter
-  informers remain untested.
+**Two new costs observed when the backend is real** [`0004`]:
 
-**The library is built around generic-store assumptions that the
-etcd-less path must replicate manually.** `NewDefaultAPIGroupInfo` +
-`VersionedResourcesStorageMap` is generic over `rest.Storage`, so
-the plug-in point is clean. Everything after that is your code.
+1. **Pod-restart amnesia.** Cache and synthetic UIDs are
+   process-local. A restarted AA regenerates UIDs on the next
+   poll; any consumer keyed on UID sees apparent full churn.
+   A deterministic UID scheme (e.g. hash of the backend's stable
+   ID) would fix this; we did not implement it yet.
+2. **Rate-limit coupling.** Poll interval × page count × call
+   cost is a joint decision with the backend's rate limit, not
+   independent knobs. Unauthenticated GitHub (60/hr) cannot
+   sustain a 60-second poll against 200+ repos; a PAT becomes
+   functionally mandatory, not just nice-to-have.
+
+**Synthetic resourceVersion suffices for kubectl.** A single
+`atomic.Uint64` stringified as decimal is accepted without
+complaint. Returning `410 Gone` on any resume request with an RV
+other than current makes reflectors relist cleanly. The long-
+lived-informer boundary (sustained reflector past multiple relist
+cycles) remains unmeasured.
 
 Open questions:
 
-- Where does the polling-driven synthetic-watch pattern break at
-  scale? Not yet probed.
-- What is the smallest viable resourceVersion scheme that still
-  satisfies client-go's reflector under long-lived informers?
-- Pod-restart behavior: what do clients see when our in-memory
-  state vanishes?
+- How does a controller-runtime informer behave across an AA pod
+  restart when UIDs regenerate?
+- What's the cost of implementing deterministic UIDs vs. letting
+  the client rediscover?
+- How much rate-limit headroom does an ETag-aware client buy?
+  Our client currently doesn't honor ETags.
+- Webhook-driven backends (GitHub emits push / pull-request
+  events) could skip polling entirely; worth probing.
 
 ## Per-request authorization
 
@@ -193,41 +210,61 @@ Open questions:
 
 ## Resource modeling freedom
 
-Still untested beyond the trivial `Hello` resource. Hypothesis
-(unchanged): anything with an addressable identity and a schema can
-be projected as a Kubernetes resource. Interesting boundaries —
-backends without stable names, without list operations, without
-deletion primitives, with inconsistent schema — all unprobed.
+**First real confirmation against a non-trivial backend** [`0004`].
+Mapping GitHub repos to Kubernetes resources was clean: `<owner>.<name>`
+as the resource name worked for 206 real repo names without collision
+or rejection; spec fields mapped 1:1 from GitHub JSON; status
+carried only server-observation metadata. No accommodations to the
+Kubernetes model were necessary for this shape.
 
-**An adjacent boundary is now named**: Kubernetes separates
+**An adjacent boundary is now named** [`0003`]: Kubernetes separates
 authorization from admission. The authorizer sees the request URL
 attributes (user, verb, group, resource, namespace, name on
 non-CREATE); admission sees the object body. Any policy that
 depends on fields inside the object at CREATE time is an admission
-concern, not an authz concern [`0003`]. This shapes what a future
-"driver" interface needs to surface: a hook for validating/
-mutating admission is probably required alongside the authz hook.
+concern, not an authz concern. This shapes what a future "driver"
+interface needs to surface: a hook for validating/mutating admission
+is probably required alongside the authz hook.
 
-Drivers on the menu: `fs-driver`, `github-driver-static-pat`,
-`http-driver`.
+Boundary cases not tested: repo names containing dots, forks whose
+names collide with parents, backend renames / transfers causing the
+same resource name to refer to something else later, backends with
+no stable identifier at all.
+
+Drivers still on the menu: `fs-driver`, `http-driver`. With `0004`
+established, `extract-runtime` has its prerequisite pair: one
+in-memory (0002) and one external (0004) have demanded enough of
+the same `rest.Storage` boilerplate that factoring is now a valid
+move when pressure from a third driver forces it.
 
 ## Watch and consistency semantics
 
-**Watch mechanically works at both levels** [`0001`, `0002`]. stdlib
-chunked-NDJSON with hand-built events; `watch.NewBroadcaster` +
-`WatchWithPrefix` in the library-backed path. kubectl renders both.
+**Watch mechanically works at the wire level** across all three
+modes we have probed: hand-rolled chunked-NDJSON [`0001`], library
+broadcaster with an in-memory source [`0002`], and library
+broadcaster with a polling external source [`0004`]. kubectl
+renders all three.
 
 **A single monotonic `atomic.Uint64` is a workable synthetic
-resourceVersion** [`0002`]. kubectl does not complain about it.
-client-go's reflector semantics (relist on 410-Gone) suggest that
-under real informer load we should `ResourceExpired` any old-RV
-watch we cannot replay — our current implementation does that.
+resourceVersion** [`0002`, `0004`]. `ResourceExpired` (HTTP 410)
+on any non-current RV makes reflectors relist cleanly. We did not
+implement an event ring-buffer; a client with a mildly stale RV
+always triggers a relist rather than a targeted replay.
+
+**Pod-restart behavior is now characterized** [`0004`]: UIDs
+regenerate, so consumers that key on UID see apparent full churn.
+Consumers that relist-only (driven by `ResourceExpired` on
+reconnect) see the same cluster state again, which is correct; the
+UID churn is a separate signal whose consumers may not expect it.
 
 Still untested:
 
-- Long-lived controller-runtime informers past the relist boundary.
+- Long-lived controller-runtime informer over multiple hours /
+  multiple cache-wipe boundaries.
 - Cert rotation mid-watch.
 - Real backend-change-driven watch (vs. polling or synthetic).
+- ArgoCD's sync-cache behavior against a polling-driven AA that
+  has a ~60s latency floor.
 
 ---
 
