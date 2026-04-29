@@ -18,7 +18,7 @@ provide the evidence.
 
 ## Current state
 
-Informed by eight experiments:
+Informed by nine experiments:
 
 - `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
 - `FINDINGS/0002-hello-aggregated` — library-backed (`k8s.io/apiserver`)
@@ -35,12 +35,15 @@ Informed by eight experiments:
   extracted `runtime/` substrate; files on disk as `files.aggexp.io/v1`.
 - `FINDINGS/0008-long-lived-informer` — client-go SharedInformer
   sustained against a synthetic-RV AA over four probe scenarios.
+- `FINDINGS/0009-ack-aggregated-s3` — ACK-pattern inversion: AWS S3
+  Bucket as aggregated API with no local state; live reads, live
+  writes; watch via poll-diff.
 
 MVP-lab and MVP-example (GitHub repos end-to-end) are both complete;
 see `FINDINGS/example-e1-github-repos.md`.
 
-`runtime/` substrate exists and is consumed by `experiments/0007`
-today. See `ARCHITECTURE.md`.
+`runtime/` substrate exists and is consumed by experiments 0007 and
+0009 today. See `ARCHITECTURE.md`.
 
 Remaining claims below without a `FINDINGS/*` reference are
 unvalidated.
@@ -164,20 +167,20 @@ Open questions:
 
 ## Storage independence
 
-**Confirmed end-to-end against three backends** [`0002`, `0004`,
-`0007`]. The library does not require etcd: replacing
+**Confirmed end-to-end against four backends** [`0002`, `0004`,
+`0007`, `0009`]. The library does not require etcd: replacing
 `RecommendedOptions.Etcd` with a bespoke Options struct is clean.
 For in-memory state, ~250 lines of `rest.Storage` implementation plus
-standard broadcaster wiring. For external state (GitHub), the
+standard broadcaster wiring. For external state (GitHub, AWS S3), the
 incremental cost is a small API client + a polling loop. For disk
 (fs files), the same pattern adapts to a different source of truth.
 
-**The substrate makes this a promoted pattern** [`0007`]. A
+**The substrate makes this a promoted pattern** [`0007`, `0009`]. A
 `Backend` interface plus an adapter in `runtime/storage` means new
 experiments write a few hundred lines of backend-specific code and
 inherit the rest.Storage interfaces, watch fan-out, RV generation,
-and Table rendering. ~36% reduction in a third experiment's
-boilerplate vs. hand-rolling.
+and Table rendering. `0007`'s fs backend was ~36% shorter than
+0004's hand-rolled shape; `0009`'s S3 backend is comparable.
 
 **Three stateful-vs-stateless costs observed** [`0004`, `0006`,
 `0008`]:
@@ -194,23 +197,63 @@ boilerplate vs. hand-rolling.
    HTTP stream the AA itself synthesizes.
 3. **Rate-limit coupling.** Poll interval × page count × call
    cost is a joint decision with the backend's rate limit, not
-   independent knobs [`0004`]. Unauthenticated GitHub (60/hr)
-   cannot sustain a 60-second poll against 200+ repos.
+   independent knobs [`0004`].
+
+**Library features that assume persistence do not survive a
+stateless AA** [`0009`]. Three named casualties from the
+ACK-inversion experiment:
+
+1. **SSA's field ownership tracking** is library-layer state.
+   `kubectl apply --server-side` succeeds on the wire but
+   `managedFields` is absent from subsequent GETs because the AA
+   has nowhere to persist them. A conflict-from-second-manager
+   scenario has no prior ownership record to conflict against.
+   Three remediations: abandon SSA (awkward — library enables it
+   by default); encode managedFields into the backend (reintroduces
+   state, usually lossy); shadow-persist in etcd (resurrects the
+   controller model this inversion set out to avoid).
+2. **ObjectMeta bookkeeping**: labels, annotations, finalizers,
+   and ownerReferences have no natural home. kubectl's
+   `last-applied-configuration` annotation triggers a warning on
+   every apply but functionally works (kubectl re-patches it each
+   time). Finalizers and ownerReferences would need backend
+   modeling that doesn't exist naturally in most backends.
+3. **Sync-vs-async backend boundary.** The inverted model fits
+   synchronous backends (S3 Bucket, SNS Topic) cleanly. For
+   asynchronous provisioning (EKS cluster creation, IAM
+   propagation, RDS), the AA's Create-equivalent would need to
+   block the HTTP request for minutes — not workable. ACK's
+   controller pattern earns its complexity specifically by
+   handling async. An AA covering the full AWS surface would
+   need state for async operations, which defeats the
+   inversion's premise for those resources.
+
+The inversion pays off for the synchronous / simple-lifecycle
+subset of backends. For those, the stateless AA is a better fit
+than CRD+controller: no drift, no reconciler backoff, no stuck
+finalizers, no two-process coordination. For complex backends,
+the controller pattern's complexity is load-bearing.
 
 **Synthetic resourceVersion suffices for real informers** [`0002`,
-`0004`, `0008`]. A single `atomic.Uint64` stringified as decimal is
-accepted. Returning `410 Gone` on any resume request with an RV
+`0004`, `0008`]. A single `atomic.Uint64` stringified as decimal
+is accepted. Returning `410 Gone` on any resume request with an RV
 other than current makes reflectors relist — though they more often
 reach that state via a 503-on-connection-refused than via an actual
-410 on resume, because the server is usually entirely unreachable
-during disruption, not just serving a stale RV.
+410 on resume.
 
 Open questions:
 
-- ETag-aware polling: our GitHub client doesn't honor ETags. How
-  much rate-limit headroom does adding them buy?
-- Webhook-driven backends (GitHub pushes events) could skip polling
-  entirely. Untested.
+- Can SSA's ownership tracking be reconstructed by encoding
+  managedFields into backend-specific metadata (S3 tags, GitHub
+  repo description fields, etc.) without forcing a general etcd
+  shadow store? Queued as `ssa-managedfields-in-backend`.
+- What does "async backend" actually cost when you try to model
+  one? Queued as `async-backend-sim`.
+- ETag-aware polling: our GitHub and S3 clients don't honor
+  ETags. How much rate-limit headroom does adding them buy?
+- Webhook-driven backends (GitHub pushes events; AWS has
+  CloudTrail and EventBridge) could skip polling entirely.
+  Untested.
 - Deterministic UIDs (hash of backend's stable ID) would preserve
   identity across AA restarts. Not implemented.
 
@@ -285,9 +328,9 @@ Open questions:
 
 ## Resource modeling freedom
 
-**Confirmed across three real backends** [`0004`, `0006`, `0007`].
-Mapping an external system's state to Kubernetes resources is
-clean when the system has stable identifiers and a describable
+**Confirmed across four real backends** [`0004`, `0006`, `0007`,
+`0009`]. Mapping an external system's state to Kubernetes resources
+is clean when the system has stable identifiers and a describable
 schema:
 
 - GitHub repos: `<owner>.<name>` worked for 206 real repos; spec
@@ -296,28 +339,31 @@ schema:
   did not change when authentication shifted. [`0006`]
 - Files on disk: filename as resource name; path, size, mode as
   spec. [`0007`]
+- AWS S3 buckets: global-unique name as resource name; region +
+  tags as spec. [`0009`]
 
-No new caveats emerged beyond the existing name-sanitization
-question. Untested boundaries:
+**Two adjacent boundaries now named**:
 
-- Backends with inconsistent schema (different objects of the
-  same "kind" have different fields).
-- Backends without stable names (rename-safe IDs not exposed).
-- Backends without list operations (can only `GET` by known key).
-- Backends with no deletion primitive.
-- Backends whose names legally contain characters Kubernetes
-  names don't accept.
+- **Authorization vs. admission** [`0003`]. The authorizer sees
+  request URL attributes; the object body belongs to admission.
+  Policies depending on fields inside the object at CREATE time
+  need admission logic. The substrate does not yet surface an
+  admission hook.
+- **Synchronous vs. asynchronous backend operations** [`0009`].
+  The stateless-AA model fits sync backends (S3 create returns in
+  milliseconds) cleanly. For async provisioning (EKS clusters,
+  RDS, IAM role propagation), the model breaks down: the AA's
+  Create-equivalent would block on minute-scale operations. An
+  AA replacement for ACK would need state to handle async —
+  which is the controller pattern rebuilt.
 
-**Authorization and admission are distinct concerns in the AA
-world** [`0003`]. The authorizer sees request URL attributes; the
-object body belongs to admission. Policies depending on fields
-inside the object at CREATE time need admission logic. The
-substrate does not yet surface an admission hook; that seam is
-still hypothetical.
+Untested shape-boundaries: backends with inconsistent schema,
+without stable names, without list operations, without deletion
+primitives, with names containing characters Kubernetes rejects.
 
-Drivers still worth building: `http-driver` (arbitrary HTTP
-endpoints as resources), `grpc-as-resource`, `virtual-composition`
-(projecting a join of two underlying resources).
+Drivers worth building: `http-driver` (arbitrary HTTP endpoints as
+resources), `grpc-as-resource`, `virtual-composition` (projecting
+a join of two underlying resources).
 
 ---
 
@@ -376,33 +422,42 @@ Still unmeasured:
 
 ## Process observations
 
-Four observations after eight experiments and one substrate
+Five observations after nine experiments and one substrate
 promotion:
 
 1. **Findings proportional to signal** holds. Dense experiments
-   (0001, 0002, 0003, 0006, 0008) produced long FINDINGS; lean
-   ones (0005, 0007) produced tighter ones. Agents have not been
-   padding, which was the risk the ethos was guarding against.
+   (0001, 0002, 0003, 0006, 0008, 0009) produced long FINDINGS;
+   lean ones (0005, 0007) produced tighter ones. Agents have not
+   been padding, which was the risk the ethos was guarding
+   against.
 2. **Parallel agents on the same kind cluster clobbered each
    other's state** during the 0005/0008 arcs. Each agent created
    its own `aggexp-<slug>` cluster after the first collision.
    Worth noting in AGENTS.md next rewrite: `kubectl config
    use-context` is process-global; parallel agents need isolated
-   clusters. Not severe enough to block; flagged here and not
-   propagated to AGENTS.md yet.
+   clusters.
 3. **Substrate extraction was deliberate and worked**. The
    two-driver precondition (0002 + 0004) produced a natural
-   `Backend` interface that survived its first consumer (0007)
-   with only minor seam issues (OpenAPI still copy-pasted into
-   experiments; `WritableBackend.Update` pre-fetch-then-mutate
-   may not fit all backends). Promotion discipline — tests, docs,
-   thought-through interface — was honored.
-4. **The six fundamentals frame has held** across eight
-   experiments. No new fundamental has emerged. Two adjacent
-   concerns have been named (authz-vs-admission; substrate
-   vs. experiment promotion triggers) but both fit cleanly under
-   existing fundamentals without demanding a rewrite of the list.
+   `Backend` interface that survived its second consumer (0007)
+   and its third (0009) with only minor seam issues (OpenAPI
+   still copy-pasted into experiments; `WritableBackend.Update`
+   pre-fetch-then-mutate did not fit the S3 delete-then-create
+   case but did fit update-in-place). Promotion discipline —
+   tests, docs, thought-through interface — was honored.
+4. **The six fundamentals frame has held** across nine
+   experiments. No new fundamental has emerged. Three adjacent
+   concerns have been named and fit cleanly under existing
+   fundamentals without demanding a rewrite of the list:
+   authz-vs-admission, substrate-promotion triggers, and
+   sync-vs-async backend operations.
+5. **The inversion thought experiments (0006 broker, 0009
+   ACK-AA) were disproportionately productive.** They exposed
+   specific library-layer features that assume persistence
+   (SSA managedFields; labels/annotations survival; finalizer
+   semantics) — findings a positive "what works" probe would
+   have missed. Worth repeating: inversions surface assumptions
+   that direct probes don't.
 
 The ethos itself needs no changes yet. If a pattern emerges of
-experiments going longer than they need to, or of SYNTHESIS falling
-out of sync with FINDINGS, revisit.
+experiments going longer than they need to, or of SYNTHESIS
+falling out of sync with FINDINGS, revisit.

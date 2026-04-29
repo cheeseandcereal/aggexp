@@ -102,6 +102,11 @@ SSA working out-of-the-box. Status: complete. See
 - **`0007-runtime-fs-driver`** — third backend using the extracted
   `runtime/` substrate: files on disk as `files.aggexp.io/v1`.
   Status: complete. See `FINDINGS/0007-runtime-fs-driver.md`.
+- **`0009-ack-aggregated-s3`** — ACK-inversion: AWS S3 buckets as
+  an aggregated API with no local state; live reads, live writes;
+  watch via poll-diff. Surfaced the SSA managedFields persistence
+  problem and the sync-vs-async backend boundary. Status:
+  complete. See `FINDINGS/0009-ack-aggregated-s3.md`.
 - `external-db-driver` — postgres-backed driver; real resourceVersion
   derived from a sequence.
 - `repo-uid-stability` — use a deterministic UID scheme derived
@@ -117,6 +122,18 @@ SSA working out-of-the-box. Status: complete. See
 - `etag-aware-polling` — add ETag / If-None-Match to the GitHub
   client; measure how much rate-limit headroom it buys.
   Derived from `0004`.
+- `ssa-managedfields-in-backend` — encode SSA managedFields into
+  the backend (S3 tags, etc.) and see whether ownership semantics
+  can be recovered under the inverted model. Derived from `0009`.
+- `async-backend-sim` — simulate an async-provisioning backend
+  (30s fake delay) and see how the AA must model it. Tests the
+  sync/async boundary explicitly. Derived from `0009`.
+- `cross-resource-references` — two resource types where one
+  references the other; probes declarative-apply ordering under
+  the inverted model. Derived from `0009`.
+- `aws-cloudtrail-watch` — replace the S3 poll loop with
+  CloudTrail/EventBridge subscriptions for a real-AWS
+  deployment. Derived from `0009`.
 
 **Retired candidates**:
 - ~~`fs-driver`~~ — answered by `0007`.
@@ -157,6 +174,8 @@ SSA working out-of-the-box. Status: complete. See
 - **`0007-runtime-fs-driver`** — (primary: demonstrated substrate
   consumption; secondary: third shape in the resource-modeling
   dimension). Status: complete.
+- **`0009-ack-aggregated-s3`** — (secondary here; primary is
+  storage independence). Fourth real backend. Status: complete.
 - `http-driver` — generic HTTP endpoint as a Kubernetes resource.
   The "anything as a resource" stress test.
 - `grpc-as-resource` — expose a gRPC service through aggregation.
