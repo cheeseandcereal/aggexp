@@ -25,6 +25,9 @@ experiments/0004-github-driver-static-pat/0004-github-driver-static-pat
 experiments/0004-github-driver-static-pat/aggexp-repos
 experiments/0004-github-driver-static-pat/cmd/aggexp-repos/aggexp-repos
 experiments/0004-github-driver-static-pat/policy-service/policy-service
+experiments/0008-long-lived-informer/0008-long-lived-informer
+experiments/0008-long-lived-informer/watcher
+experiments/0008-long-lived-informer/cmd/watcher/watcher
 
 # OS / editor noise
 .DS_Store

@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aggexp-watcher
+  namespace: aggexp-system
+---
+# Permissive read access on our group. The AA's own authorizer is
+# what actually gates; we just need kube-apiserver RBAC to not block.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-watcher
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["hellos", "repos"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-watcher
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-watcher
+subjects:
+  - kind: ServiceAccount
+    name: aggexp-watcher
+    namespace: aggexp-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp-watcher
+  namespace: aggexp-system
+  labels:
+    app: aggexp-watcher
+spec:
+  type: ClusterIP
+  selector:
+    app: aggexp-watcher
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp-watcher
+  namespace: aggexp-system
+  labels:
+    app: aggexp-watcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggexp-watcher
+  template:
+    metadata:
+      labels:
+        app: aggexp-watcher
+    spec:
+      serviceAccountName: aggexp-watcher
+      containers:
+        - name: watcher
+          image: aggexp-watcher:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WATCH_GROUP
+              value: "aggexp.io"
+            - name: WATCH_VERSION
+              value: "v1"
+            - name: WATCH_RESOURCE
+              value: "hellos"
+            - name: STATUS_ADDR
+              value: ":8080"
+            - name: WATCHER_SLEEP_MS
+              value: "0"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
