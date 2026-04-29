@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: broker
+  namespace: aggexp-system
+  labels:
+    app: broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: broker
+  template:
+    metadata:
+      labels:
+        app: broker
+    spec:
+      containers:
+        - name: broker
+          image: ${BROKER_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --addr=:8080
+            - --rules=/etc/broker/rules.json
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: rules
+              mountPath: /etc/broker
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+      volumes:
+        - name: rules
+          configMap:
+            name: broker-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: broker
+  namespace: aggexp-system
+spec:
+  selector:
+    app: broker
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

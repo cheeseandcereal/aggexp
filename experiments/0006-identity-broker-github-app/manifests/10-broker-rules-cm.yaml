@@ -1,0 +1,30 @@
+# Broker rules for experiment 0006. Each rule gates an identity's
+# ability to exchange for a GitHub-scoped token. Matching is
+# user-by-user (or group-by-group); owners and actions use `*`,
+# `prefix*`, and `a|b|c` alternation. First matching rule wins.
+#
+# For the experiment we want four interesting cases:
+# - admin (kubernetes-admin): can exchange for any owner, any action.
+# - alice: can exchange only for owners "*" and read actions.
+# - bob: can exchange only for owners starting with "bob-".
+#   (Against the test owner "kubernetes-sigs" bob sees nothing,
+#    exercising the quiet-denial path.)
+# - mallory: explicit deny, any action.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: broker-rules
+  namespace: aggexp-system
+data:
+  rules.json: |
+    {
+      "rules": [
+        { "user": "kubernetes-admin",        "owners": "*",       "actions": "*",          "reason": "admin: all github" },
+        { "group": "kubeadm:cluster-admins", "owners": "*",       "actions": "*",          "reason": "cluster-admin group" },
+        { "user": "alice",                   "owners": "*",       "actions": "list|get",   "reason": "alice: read-only" },
+        { "user": "bob",                     "owners": "bob-*",   "actions": "*",          "reason": "bob: scoped to bob-* owners" },
+        { "user": "bob",                     "deny": true,                                 "reason": "bob: no other owner access" },
+        { "user": "mallory",                 "deny": true,                                 "reason": "mallory: no github" }
+      ],
+      "default": { "deny": true, "reason": "no matching rule" }
+    }
