@@ -62,9 +62,11 @@ SSA working out-of-the-box. Status: complete. See
   GitHub repos using a static PAT. Identity is observed in logs and
   gated by the AA's authorizer; not yet forwarded to GitHub. Status:
   complete. See `FINDINGS/0004-github-driver-static-pat.md`.
-- `identity-broker-github-app` — broker holding a GitHub App key;
-  exchanges caller identity for a scoped installation token per
-  request. The real identity-forwarding pattern.
+- **`0006-identity-broker-github-app`** — broker-mediated
+  identity-to-backend token exchange. Mock broker + mock GitHub,
+  per-request caller-scoped token issuance and introspection.
+  Status: complete. See
+  `FINDINGS/0006-identity-broker-github-app.md`.
 - `oidc-federation` — kube-apiserver configured with structured
   authentication config to federate GitHub OIDC tokens; our AA
   observes GitHub claims arriving in `user.Info.Extra`.
@@ -73,6 +75,14 @@ SSA working out-of-the-box. Status: complete. See
 - `extra-field-impersonation` — `kubectl --as --as-user-extra` (1.35+)
   populates `user.Info.Extra`; does it survive the aggregation
   handoff and arrive at a custom authorizer? Derived from `0003`.
+  Sharper with `0006` as baseline: under default impersonation,
+  Extras are empty.
+- `broker-token-cache` — add a short-TTL cache keyed on (user,
+  owner, action) to the broker client; measure latency under serial
+  and concurrent bursts. Derived from `0006`.
+- `broker-with-authorizer` — run `0003`'s custom authorizer and
+  `0006`'s broker together; observe combined UX (loud denial at
+  authz, quiet denial at broker). Derived from `0006`.
 
 ## Storage independence
 
@@ -169,8 +179,10 @@ Possible follow-on examples (no commitment):
 
 - **E2**: `kubectl get repos` with **identity forwarding** — each
   caller's action against GitHub is performed as that caller's
-  identity via the identity broker. Depends on
-  `identity-broker-github-app`.
+  identity via the identity broker. Prerequisite
+  `0006-identity-broker-github-app` is complete (mock broker +
+  mock backend); E2 would replace the mocks with a real GitHub App
+  and real `api.github.com`.
 - **E3**: `kubectl apply` on a `Repo` creates a real GitHub
   repository. Depends on E2 and on a resolution of the
   authz-vs-admission boundary.
