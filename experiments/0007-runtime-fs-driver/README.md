@@ -76,9 +76,9 @@ kubectl get files -o yaml
 
 ## Status
 
-in-progress
+complete
 
-<!-- See FINDINGS/0007-runtime-fs-driver.md for results once complete. -->
+<!-- See FINDINGS/0007-runtime-fs-driver.md for results. -->
 
 ## Decisions made
 
