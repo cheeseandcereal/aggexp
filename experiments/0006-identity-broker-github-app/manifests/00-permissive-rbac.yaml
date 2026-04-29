@@ -1,0 +1,27 @@
+# Permissive ClusterRole + binding for repos.aggexp.io. Carried over
+# from 0003/0004: kube-apiserver RBAC gates first, so for an
+# impersonated `kubectl --as alice get repos` to reach the AA at all,
+# alice must be allowed in RBAC. In 0006 the broker, not an
+# authorizer, is the effective gate on what the caller actually
+# sees.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-repos-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["repos"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-repos-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-repos-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

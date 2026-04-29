@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-github
+  namespace: aggexp-system
+  labels:
+    app: mock-github
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-github
+  template:
+    metadata:
+      labels:
+        app: mock-github
+    spec:
+      containers:
+        - name: mock-github
+          image: ${MOCK_GITHUB_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --addr=:8080
+            - --broker-url=http://broker.aggexp-system.svc/introspect
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-github
+  namespace: aggexp-system
+spec:
+  selector:
+    app: mock-github
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
