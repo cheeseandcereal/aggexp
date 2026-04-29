@@ -1,0 +1,35 @@
+# Standard extension-apiserver RBAC (see sample-apiserver pattern).
+#
+# - system:auth-delegator lets the AA POST TokenReview and
+#   SubjectAccessReview to kube-apiserver, delegating authn/z decisions.
+# - extension-apiserver-authentication-reader (in kube-system) lets the AA
+#   read the extension-apiserver-authentication ConfigMap, which carries
+#   the request-header CA and allowed client CN list used to trust
+#   kube-apiserver's proxied requests.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp:system:auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aggexp-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
