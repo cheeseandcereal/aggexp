@@ -1,0 +1,27 @@
+# Permissive ClusterRole + binding so that authenticated users can
+# reach the aggexp.io API -- per the 0001 finding, kube-apiserver
+# RBAC gates requests before they reach the AA. For this experiment
+# the AA's own custom authorizer is the real decision point, so we
+# deliberately open the upstream gate. See SYNTHESIS.md /
+# "Per-request authorization" for the trade-offs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-hellos-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["hellos"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-hellos-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-hellos-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,20 @@
+# Rules for the policy service. Matched in order; first match wins.
+# `*` is any, `a|b|c` alternation; empty fields match anything.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: policy-service-rules
+  namespace: aggexp-system
+data:
+  rules.json: |
+    {
+      "rules": [
+        { "user": "kubernetes-admin",        "verb": "*",                "allow": true,  "reason": "admin" },
+        { "group": "kubeadm:cluster-admins", "verb": "*",                "allow": true,  "reason": "cluster admins" },
+        { "user": "alice",                   "verb": "get|list|watch",   "allow": true,  "reason": "alice: readonly" },
+        { "user": "alice",                   "verb": "*",                              "allow": false, "reason": "alice: writes denied" },
+        { "user": "bob",                     "verb": "*",                "name": "bob-*", "allow": true, "reason": "bob: only bob-* objects" },
+        { "user": "bob",                                                               "allow": false, "reason": "bob: default deny" }
+      ],
+      "default": { "allow": false, "reason": "no matching rule" }
+    }

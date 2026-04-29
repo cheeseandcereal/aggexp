@@ -17,6 +17,10 @@ experiments/0001-raw-http-aggregation/0001-raw-http-aggregation
 experiments/0002-hello-aggregated/0002-hello-aggregated
 experiments/0002-hello-aggregated/aggexp-hello
 experiments/0002-hello-aggregated/cmd/aggexp-hello/aggexp-hello
+experiments/0003-custom-authorizer-external-policy/0003-custom-authorizer-external-policy
+experiments/0003-custom-authorizer-external-policy/aggexp-authz
+experiments/0003-custom-authorizer-external-policy/cmd/aggexp-authz/aggexp-authz
+experiments/0003-custom-authorizer-external-policy/policy-service/policy-service
 
 # OS / editor noise
 .DS_Store
