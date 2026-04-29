@@ -55,9 +55,9 @@ SSA working out-of-the-box. Status: complete. See
 
 ## Identity handoff
 
-- `custom-authorizer-external-policy` — custom `authorizer.Authorizer`
-  that consults an external HTTP policy service on every request.
-  Proves per-request identity-based authz end-to-end.
+- **`0003-custom-authorizer-external-policy`** — (primary fundamental:
+  per-request authz; also touches identity handoff). Status:
+  complete. See `FINDINGS/0003-custom-authorizer-external-policy.md`.
 - `github-driver-static-pat` — aggregated API exposing GitHub repos
   using a single static PAT. Identity is *observed* in logs, not yet
   forwarded.
@@ -69,6 +69,9 @@ SSA working out-of-the-box. Status: complete. See
   observes GitHub claims arriving in `user.Info.Extra`.
 - `extra-header-smuggling` — (consequent-leaning) what can round-trip
   through `X-Remote-Extra-*`? Includes a threat model.
+- `extra-field-impersonation` — `kubectl --as --as-user-extra` (1.35+)
+  populates `user.Info.Extra`; does it survive the aggregation
+  handoff and arrive at a custom authorizer? Derived from `0003`.
 
 ## Storage independence
 
@@ -81,18 +84,26 @@ SSA working out-of-the-box. Status: complete. See
 
 ## Per-request authorization
 
-- `custom-authorizer-external-policy` — (listed under identity
-  handoff; probes both fundamentals).
+- **`0003-custom-authorizer-external-policy`** — listed under identity
+  handoff; probes both fundamentals. Status: complete.
 - `authorizer-cel` — CEL expressions evaluated per-request against
-  identity + request attributes. Compare to RBAC's declarative shape.
+  identity + request attributes. Compare to RBAC's declarative shape
+  and to `0003`'s HTTP-round-trip approach.
 - `sar-delegation-compare` — compare AA with delegated
   `SubjectAccessReview` authz vs. AA with custom authorizer. Observe
   what each enables and constrains.
 - `rbac-permissive-aa` — AA deployed with permissive upstream
   ClusterRole so the AA's authorizer becomes the real decision point.
-  Probes "can-i" / SelfSubjectRulesReview UX when authz happens in
-  the AA, not RBAC. Derived from `0001`'s observation that RBAC gates
-  requests before they reach the AA.
+  Effectively answered by `0003`; retire unless a specific new angle
+  emerges.
+- `name-aware-admission` — a validating admission hook in the AA
+  that enforces name-based creation policy (the `bob-*` rule we
+  could not enforce in the authorizer because CREATE carries no
+  `Attributes.GetName()`). Probes the authz-vs-admission boundary
+  directly. Derived from `0003`.
+- `authz-cache-latency` — add a TTL cache to the custom authorizer,
+  measure round-trip latency under load, compare to library-
+  provided SAR caching. Derived from `0003`.
 
 ## Resource modeling freedom
 

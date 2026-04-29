@@ -18,10 +18,12 @@ provide the evidence.
 
 ## Current state
 
-Informed by two experiments:
+Informed by three experiments:
 - `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
 - `FINDINGS/0002-hello-aggregated` — library-backed (`k8s.io/apiserver`)
   stateless AA with read/write/watch + SSA.
+- `FINDINGS/0003-custom-authorizer-external-policy` — per-request
+  identity-based authorization via an external HTTP policy service.
 
 Remaining claims below without a `FINDINGS/*` reference are
 unvalidated.
@@ -130,32 +132,64 @@ Open questions:
 
 ## Per-request authorization
 
-**Refinement standing from `0001`, unchanged by `0002`**: kube-
-apiserver RBAC is a gate the request must pass before the AA ever
-sees it. `kubectl --as alice get hellos` is rejected upstream. A
-custom authorizer in the AA is additive — it can only restrict
-further, not expand — unless RBAC is made permissive first.
+**Confirmed end-to-end** [`0003`]. A custom `authorizer.Authorizer`
+can make every authorization decision for a given API group based on
+runtime identity + request attributes against an external system.
+The library cooperates cleanly via `union.New`. Four concrete
+sub-findings:
 
-Two patterns:
-1. Permissive RBAC upstream; the AA's authorizer is the real
-   decision point. Breaks `kubectl auth can-i` as a meaningful tool
-   because `can-i` asks RBAC, not the AA.
-2. Strict RBAC upstream; AA authorizer decides finer gradations
-   within what RBAC allows. `can-i` remains useful but the AA is
-   consulted only for the subset of already-authorized requests.
+1. **Chain order is sharp.** With permissive upstream RBAC, the
+   default library chain's delegated SAR authorizer returns `Allow`
+   for our group and short-circuits whatever comes after it.
+   `union.New(custom, existing)` — custom first — is required; the
+   custom authorizer must return `NoOpinion` for everything outside
+   its scope so the library's privileged-groups / always-allow-paths
+   behavior still works.
 
-Both `0001` and `0002` ran without a custom authorizer. The real
-test is the queued `custom-authorizer-external-policy` experiment.
+2. **Denials carry the reason string verbatim** to clients. The
+   HTTP 403 body is `metav1.Status.Message = "User ... cannot
+   <verb> resource ... : <your reason>"`. This is a UX surface:
+   helpful for operators debugging, dangerous if the policy
+   service leaks sensitive reasoning.
+
+3. **`kubectl auth can-i` lies** when the AA is the real gate.
+   SAR is answered by kube-apiserver's RBAC, not the AA. With the
+   permissive-RBAC-plus-AA-authorizer pattern, `can-i` reports
+   allows that aren't. This is a wire-level property, not fixable
+   from the extension. The operator UX choice is either "keep RBAC
+   strict upstream and refine in the AA" (can-i stays meaningful)
+   or "teach users can-i is advisory" (the AA becomes authoritative
+   but asynchronously discoverable).
+
+4. **CREATE has no `name` in authorizer Attributes.** Kubernetes
+   puts the resource name in the request body on CREATE, not the
+   URL. Name-based creation policies cannot be enforced in the
+   authorizer interface; they belong in **admission** (validating
+   admission webhook / CEL). This is the first observed case of
+   authz and admission being distinct concerns with distinct
+   capabilities in the AA world.
+
+**Latency is not the limiting factor at lab scale** [`0003`]. One
+external HTTP round trip per authz check added ~0ms perceptible
+(measured ~65ms per kubectl call end-to-end, dominated by the
+aggregation-layer hop). Real production pressure would want a TTL
+cache; the library caches SAR answers but not our custom authz.
+
+**The AA's role is still additive, not replacing RBAC** [`0001`,
+`0003`]. Two working patterns:
+- Permissive RBAC upstream; AA authorizer is the real gate.
+  `can-i` breaks; AA is authoritative. Used in `0003`.
+- Strict RBAC upstream; AA authorizer refines. `can-i` remains
+  meaningful; AA can only narrow, not expand. Not yet probed.
 
 Open questions:
 
 - Does `SubjectAccessReview` from AA back to kube-apiserver
   preserve the interaction pattern, or is it orthogonal?
-- Performance budget for a per-request authz call to an external
-  policy service — what do kubectl, controller-runtime, and
-  ArgoCD each tolerate?
-- How does `can-i` / `SelfSubjectRulesReview` behave under the
-  permissive-RBAC + strict-AA-authz pattern?
+- What is the right caching strategy? TTL per-(user, verb, name)?
+  How stale is acceptable?
+- How do controller-runtime informers behave when their identity
+  is denied by the AA? Hot-loop, back off, crash?
 
 ## Resource modeling freedom
 
@@ -164,6 +198,15 @@ Still untested beyond the trivial `Hello` resource. Hypothesis
 be projected as a Kubernetes resource. Interesting boundaries —
 backends without stable names, without list operations, without
 deletion primitives, with inconsistent schema — all unprobed.
+
+**An adjacent boundary is now named**: Kubernetes separates
+authorization from admission. The authorizer sees the request URL
+attributes (user, verb, group, resource, namespace, name on
+non-CREATE); admission sees the object body. Any policy that
+depends on fields inside the object at CREATE time is an admission
+concern, not an authz concern [`0003`]. This shapes what a future
+"driver" interface needs to surface: a hook for validating/
+mutating admission is probably required alongside the authz hook.
 
 Drivers on the menu: `fs-driver`, `github-driver-static-pat`,
 `http-driver`.
