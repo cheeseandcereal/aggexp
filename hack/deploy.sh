@@ -45,7 +45,8 @@ export CA_BUNDLE
 : "${POLICY_IMAGE:=aggexp-policy:dev}"
 : "${GITHUB_OWNER:=}"
 : "${GITHUB_TOKEN:=}"
-export AGGEXP_IMAGE POLICY_IMAGE GITHUB_OWNER GITHUB_TOKEN
+: "${S3_MOCK_IMAGE:=aggexp-s3-mock:dev}"
+export AGGEXP_IMAGE POLICY_IMAGE GITHUB_OWNER GITHUB_TOKEN S3_MOCK_IMAGE
 
 # Upsert serving-cert secret. `kubectl apply` on a generated secret via
 # --dry-run=client lets this be idempotent without read-modify-write dance.

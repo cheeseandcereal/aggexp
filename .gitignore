@@ -41,6 +41,10 @@ experiments/0007-runtime-fs-driver/cmd/aggexp-files/aggexp-files
 experiments/0008-long-lived-informer/0008-long-lived-informer
 experiments/0008-long-lived-informer/watcher
 experiments/0008-long-lived-informer/cmd/watcher/watcher
+experiments/0009-ack-aggregated-s3/0009-ack-aggregated-s3
+experiments/0009-ack-aggregated-s3/aggexp-s3
+experiments/0009-ack-aggregated-s3/cmd/aggexp-s3/aggexp-s3
+experiments/0009-ack-aggregated-s3/s3-mock/s3-mock
 
 # OS / editor noise
 .DS_Store
