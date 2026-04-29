@@ -76,40 +76,27 @@ else
     record "kubectl explain ${RESOURCE}" "expect" "FAIL" "${out%%$'\n'*}"
   fi
 
-  # --- probe: watch streams within 5s --------------------------------------
-  # kubectl get -w exits 0 only on signal; we just check it emits something
-  # within the window. `timeout` isn't universal (macOS) so we background,
-  # sleep, and kill by PID ourselves.
-  WATCH_OUT="$(mktemp)"
-  kubectl get "${RESOURCE}" -A -w >"${WATCH_OUT}" 2>&1 &
-  WATCH_PID=$!
-  sleep 5
-  kill "${WATCH_PID}" 2>/dev/null || true
-  wait "${WATCH_PID}" 2>/dev/null || true
-  if [[ -s "${WATCH_OUT}" ]]; then
-    record "kubectl get ${RESOURCE} -w" "expect" "PASS" "stream produced output in 5s"
-  else
-    record "kubectl get ${RESOURCE} -w" "expect" "FAIL" "no output within 5s"
-  fi
-  rm -f "${WATCH_OUT}"
-
   # --- probe: apply a minimal Hello object ----------------------------------
   # We hardcode a Hello example because the whole point is to exercise the
   # default `aggexp.io/v1` contract. If the kind isn't registered, that's
-  # interesting but not a test failure -- we SKIP the apply probes.
+  # interesting but not a test failure -- we SKIP the apply probes. The
+  # expected schema has `spec.greeting` per the hellos.aggexp.io/v1 contract
+  # established by experiments 0001 and 0002.
   HELLO_YAML="$(cat <<EOF
 apiVersion: ${GROUP}/${VERSION}
 kind: Hello
 metadata:
   name: compat-probe
 spec:
-  message: hi
+  greeting: hi
 EOF
 )"
+  APPLY_RAN=0
   if kubectl api-resources --api-group="${GROUP}" --no-headers 2>/dev/null \
        | awk '{print $NF}' | grep -qx "Hello"; then
     if out="$(printf '%s\n' "${HELLO_YAML}" | kubectl apply -f - 2>&1)"; then
       record "kubectl apply Hello" "expect" "PASS" "${out%%$'\n'*}"
+      APPLY_RAN=1
     else
       record "kubectl apply Hello" "expect" "FAIL" "${out%%$'\n'*}"
     fi
@@ -122,6 +109,29 @@ EOF
     record "kubectl apply Hello"              "expect"  "SKIP" "Hello kind not registered"
     record "kubectl apply --server-side Hello" "observe" "SKIP" "Hello kind not registered"
   fi
+  # APPLY_RAN is informational for future expansions that want to skip
+  # follow-up probes when the seed apply didn't happen; referenced but
+  # not branched on today.
+  : "${APPLY_RAN}"
+
+  # --- probe: watch streams within 5s ---------------------------------------
+  # kubectl get -w exits 0 only on signal; we just check it emits something
+  # within the window. `timeout` isn't universal (macOS) so we background,
+  # sleep, and kill by PID ourselves. Runs after the apply probe so the
+  # initial ADDED event provides immediate output for a server that honors
+  # level-consistent watch semantics.
+  WATCH_OUT="$(mktemp)"
+  kubectl get "${RESOURCE}" -A -w >"${WATCH_OUT}" 2>&1 &
+  WATCH_PID=$!
+  sleep 5
+  kill "${WATCH_PID}" 2>/dev/null || true
+  wait "${WATCH_PID}" 2>/dev/null || true
+  if [[ -s "${WATCH_OUT}" ]]; then
+    record "kubectl get ${RESOURCE} -w" "expect" "PASS" "stream produced output in 5s"
+  else
+    record "kubectl get ${RESOURCE} -w" "expect" "FAIL" "no output within 5s"
+  fi
+  rm -f "${WATCH_OUT}"
 fi
 
 # --- probe: APIService Available condition ---------------------------------
@@ -135,6 +145,11 @@ if cond="$(kubectl get apiservice "${APISVC}" \
   fi
 else
   record "APIService ${APISVC} Available" "expect" "FAIL" "APIService not found"
+fi
+
+# --- cleanup the probe object so repeated runs don't accumulate state ------
+if [[ -n "${RESOURCE}" ]]; then
+  kubectl delete "${RESOURCE}" compat-probe --ignore-not-found=true 2>/dev/null || true
 fi
 
 # --- write markdown report --------------------------------------------------
