@@ -1,0 +1,16 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1.aggexp.io
+spec:
+  group: aggexp.io
+  version: v1
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: aggexp
+    namespace: aggexp-system
+    port: 443
+  # ${CA_BUNDLE} is a base64-encoded CA cert, substituted by hack/deploy.sh.
+  caBundle: ${CA_BUNDLE}
+  insecureSkipTLSVerify: false
