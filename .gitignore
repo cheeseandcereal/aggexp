@@ -21,6 +21,10 @@ experiments/0003-custom-authorizer-external-policy/0003-custom-authorizer-extern
 experiments/0003-custom-authorizer-external-policy/aggexp-authz
 experiments/0003-custom-authorizer-external-policy/cmd/aggexp-authz/aggexp-authz
 experiments/0003-custom-authorizer-external-policy/policy-service/policy-service
+experiments/0004-github-driver-static-pat/0004-github-driver-static-pat
+experiments/0004-github-driver-static-pat/aggexp-repos
+experiments/0004-github-driver-static-pat/cmd/aggexp-repos/aggexp-repos
+experiments/0004-github-driver-static-pat/policy-service/policy-service
 
 # OS / editor noise
 .DS_Store

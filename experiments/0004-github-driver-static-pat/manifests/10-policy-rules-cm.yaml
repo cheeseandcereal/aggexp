@@ -1,0 +1,25 @@
+# Policy rules for repos. Matched in order; first match wins.
+# Rule fields: user, group, verb, resource, name. `*`, `prefix*`,
+# and `a|b|c` alternation are supported.
+#
+# For the MVP-example: admin sees everything; alice sees read-only;
+# bob can only see repos whose resource name matches bob-*; mallory
+# hits the default deny.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: policy-service-rules
+  namespace: aggexp-system
+data:
+  rules.json: |
+    {
+      "rules": [
+        { "user": "kubernetes-admin",        "verb": "*",                "allow": true,  "reason": "admin" },
+        { "group": "kubeadm:cluster-admins", "verb": "*",                "allow": true,  "reason": "cluster admins" },
+        { "user": "alice",                   "verb": "get|list|watch",   "allow": true,  "reason": "alice: readonly" },
+        { "user": "alice",                                               "allow": false, "reason": "alice: writes denied" },
+        { "user": "bob",                     "verb": "*",                "name": "bob-*", "allow": true, "reason": "bob: scoped to bob-*" },
+        { "user": "bob",                                                 "allow": false, "reason": "bob: default deny" }
+      ],
+      "default": { "allow": false, "reason": "no matching rule" }
+    }

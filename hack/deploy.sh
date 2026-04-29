@@ -43,7 +43,9 @@ export CA_BUNDLE
 # setting AGGEXP_IMAGE (and any future AGGEXP_* vars) before calling us.
 : "${AGGEXP_IMAGE:=aggexp:dev}"
 : "${POLICY_IMAGE:=aggexp-policy:dev}"
-export AGGEXP_IMAGE POLICY_IMAGE
+: "${GITHUB_OWNER:=}"
+: "${GITHUB_TOKEN:=}"
+export AGGEXP_IMAGE POLICY_IMAGE GITHUB_OWNER GITHUB_TOKEN
 
 # Upsert serving-cert secret. `kubectl apply` on a generated secret via
 # --dry-run=client lets this be idempotent without read-modify-write dance.

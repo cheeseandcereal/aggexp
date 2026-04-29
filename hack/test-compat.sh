@@ -106,7 +106,11 @@ EOF
       record "kubectl apply --server-side Hello" "observe" "FAIL" "${out%%$'\n'*}"
     fi
   else
-    record "kubectl apply Hello"              "expect"  "SKIP" "Hello kind not registered"
+    # When the experiment hasn't registered a Hello kind (e.g. 0004 has
+    # Repo instead), the write probes don't apply. Record as observe
+    # SKIP so they don't gate the scoreboard; operator can read the
+    # notes to see what happened.
+    record "kubectl apply Hello"              "observe" "SKIP" "Hello kind not registered (this experiment uses a different kind)"
     record "kubectl apply --server-side Hello" "observe" "SKIP" "Hello kind not registered"
   fi
   # APPLY_RAN is informational for future expansions that want to skip
