@@ -32,9 +32,19 @@ layer and kubectl actually demand. Status: complete. See
 SSA working out-of-the-box. Status: complete. See
 `FINDINGS/0002-hello-aggregated.md`.
 
-- `argocd-compat` — install ArgoCD into the kind cluster, point at
-  an Application referencing our API, observe what works/breaks.
-- `flux-compat` — same with Flux.
+- **`0005-argocd-compat`** — install ArgoCD into a dedicated kind
+  cluster, point at an Application referencing plain Kubernetes
+  manifests, observe what ArgoCD's cluster cache does with our
+  read-only aggregated API. Status: complete. See
+  `FINDINGS/0005-argocd-compat.md`.
+- `flux-compat` — same with Flux. Now more interesting after 0005
+  exposed the gitops-engine "one LIST failure bricks cluster cache"
+  behavior; does Flux's source-controller / kustomize-controller
+  react the same way?
+- `argocd-application-targets-aa` — ArgoCD Application directly
+  targets a `Repo` (requires writable AA; depends on MVP-example E3
+  prerequisites). Probes ArgoCD's behavior when the AA refuses
+  writes vs. when it refuses reads. Derived from `0005`.
 - `protobuf-probe` — can we serve `application/vnd.kubernetes.protobuf`
   for basic kinds? Does it matter?
 - `watch-table-rendering` — (consequent-leaning) why does kubectl's
@@ -117,6 +127,13 @@ SSA working out-of-the-box. Status: complete. See
 - `authz-cache-latency` — add a TTL cache to the custom authorizer,
   measure round-trip latency under load, compare to library-
   provided SAR caching. Derived from `0003`.
+- `aa-authz-aware-controllers` — an AA whose policy-service
+  default-denies will brick any ecosystem controller that
+  auto-discovers-and-watches every API group it has RBAC for (0005
+  observed this with ArgoCD's gitops-engine cluster cache). What
+  pattern best accommodates them? Allow-list by SA; blanket
+  `get/list/watch` for any `system:serviceaccount:*`; upstream-RBAC
+  strict + AA-refines. Derived from `0005`.
 
 ## Resource modeling freedom
 
@@ -175,4 +192,5 @@ Possible follow-on examples (no commitment):
   repository. Depends on E2 and on a resolution of the
   authz-vs-admission boundary.
 - **E4**: ArgoCD syncs a `Repo` manifest from a Git repository.
-  Depends on `argocd-compat` first.
+  Prerequisite `0005-argocd-compat` is complete; the remaining
+  dependency is a writable AA (MVP-example E3).
