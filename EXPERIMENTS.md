@@ -99,9 +99,9 @@ SSA working out-of-the-box. Status: complete. See
 - **`0004-github-driver-static-pat`** — (primary fundamental:
   storage independence; also touches identity handoff and resource
   modeling). Status: complete.
-- `fs-driver` — filesystem files exposed as a Kubernetes resource;
-  fsnotify-driven watch; real writes to disk.
-- `in-memory-hello` — subsumed by `0002-hello-aggregated`. Retired.
+- **`0007-runtime-fs-driver`** — third backend using the extracted
+  `runtime/` substrate: files on disk as `files.aggexp.io/v1`.
+  Status: complete. See `FINDINGS/0007-runtime-fs-driver.md`.
 - `external-db-driver` — postgres-backed driver; real resourceVersion
   derived from a sequence.
 - `repo-uid-stability` — use a deterministic UID scheme derived
@@ -114,6 +114,13 @@ SSA working out-of-the-box. Status: complete. See
 - `github-webhook-watch` — feed GitHub push/PR events into the
   watch broadcaster directly and skip (or reduce) polling.
   Derived from `0004`.
+- `etag-aware-polling` — add ETag / If-None-Match to the GitHub
+  client; measure how much rate-limit headroom it buys.
+  Derived from `0004`.
+
+**Retired candidates**:
+- ~~`fs-driver`~~ — answered by `0007`.
+- ~~`in-memory-hello`~~ — subsumed by `0002`.
 
 ## Per-request authorization
 
@@ -147,12 +154,9 @@ SSA working out-of-the-box. Status: complete. See
 
 ## Resource modeling freedom
 
-- `extract-runtime` — factor a `Driver` interface out of two
-  experiments that demanded the same shape. Precondition now
-  satisfied: `0002-hello-aggregated` (in-memory) and
-  `0004-github-driver-static-pat` (external polling) share most
-  of the rest.Storage boilerplate. Ready when a third driver
-  adds pressure.
+- **`0007-runtime-fs-driver`** — (primary: demonstrated substrate
+  consumption; secondary: third shape in the resource-modeling
+  dimension). Status: complete.
 - `http-driver` — generic HTTP endpoint as a Kubernetes resource.
   The "anything as a resource" stress test.
 - `grpc-as-resource` — expose a gRPC service through aggregation.
@@ -161,21 +165,19 @@ SSA working out-of-the-box. Status: complete. See
 - `name-aware-admission` — validating admission hook in the AA
   enforcing name-based policy. Addresses the authz-vs-admission
   boundary flagged by `0003`.
+- `unstable-schema-backend` — a backend whose objects of the
+  same "kind" have inconsistent fields; probe how the AA's
+  schema + OpenAPI behave.
+
+**Retired candidates**:
+- ~~`extract-runtime`~~ — done; see `runtime/` and `0007`.
 
 ## Watch and consistency semantics
 
-- `watch-broadcaster-substrate` — real synthetic-watch implementation
-  with monotonic RV and bookmarks. Likely arrives as part of
-  `hello-aggregated`.
 - **`0008-long-lived-informer`** — client-go `SharedInformer`
   sustained against a 0002-style synthetic-RV AA; drove 410,
   AA pod restart, cert rotation, slow-handler scenarios. Status:
   complete. See `FINDINGS/0008-long-lived-informer.md`.
-- `cert-rotation-under-watch` — partially answered by `0008` for
-  the "same CA, rotated serving cert" case (invisible to
-  informers). Still open: CA-rotation with simultaneous
-  APIService.caBundle rotation and any client-cache invalidation
-  behavior that may depend on.
 - `controller-runtime-manager-compat` — controller-runtime on top
   of a synthetic-RV AA. `0008` only probed the raw reflector;
   controller-runtime's cache + reconcile loop add their own
@@ -184,6 +186,21 @@ SSA working out-of-the-box. Status: complete. See
   (default-on in 1.32 client-go but default-off on 1.32 servers)
   is a different wire path. Not exercised by `0008`. Derived
   from `0008`.
+- `ca-rotation-under-watch` — `0008` answered the "same-CA,
+  rotated serving cert" case (invisible to informers). Open:
+  CA rotation with simultaneous `APIService.caBundle` rotation
+  and any client-cache invalidation that may depend on it.
+- `hours-long-informer` — `0008` was 15-minutes-ish. What happens
+  over many hours, through multiple backend poll cycles, several
+  AA restarts, and genuine resource churn? Derived from `0008`.
+
+**Retired candidates**:
+- ~~`watch-broadcaster-substrate`~~ — done; lives in
+  `runtime/storage`.
+- ~~`long-lived-informer`~~ — answered by `0008`.
+- ~~`cert-rotation-under-watch`~~ — the same-CA case answered
+  by `0008`; residual CA-rotation case tracked as
+  `ca-rotation-under-watch` above.
 
 ---
 
@@ -211,11 +228,17 @@ Possible follow-on examples (no commitment):
   caller's action against GitHub is performed as that caller's
   identity via the identity broker. Prerequisite
   `0006-identity-broker-github-app` is complete (mock broker +
-  mock backend); E2 would replace the mocks with a real GitHub App
-  and real `api.github.com`.
+  mock backend). E2 replaces the mocks with a real GitHub App
+  and real `api.github.com`. Concrete residual work: mint real
+  installation tokens from a GitHub App private key in the broker;
+  map Kubernetes identities to GitHub logins; swap
+  `mock-github` out for `api.github.com` with a caching client.
 - **E3**: `kubectl apply` on a `Repo` creates a real GitHub
   repository. Depends on E2 and on a resolution of the
-  authz-vs-admission boundary.
+  authz-vs-admission boundary (name-based creation policy).
 - **E4**: ArgoCD syncs a `Repo` manifest from a Git repository.
-  Prerequisite `0005-argocd-compat` is complete; the remaining
-  dependency is a writable AA (MVP-example E3).
+  Prerequisite `0005-argocd-compat` is complete; the wire
+  side is confirmed. The remaining dependency is a writable AA
+  (MVP-example E3) plus handling the `aa-authz-aware-controllers`
+  gap `0005` uncovered (ArgoCD's SA must be allow-listed or
+  policy structure must change).
