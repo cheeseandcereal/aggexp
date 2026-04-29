@@ -167,10 +167,23 @@ SSA working out-of-the-box. Status: complete. See
 - `watch-broadcaster-substrate` — real synthetic-watch implementation
   with monotonic RV and bookmarks. Likely arrives as part of
   `hello-aggregated`.
-- `long-lived-informer` — controller-runtime informer sustained past
-  the relist boundary. Observe 410-Gone handling and recovery.
-- `cert-rotation-under-watch` — serving cert rotates mid-watch;
-  observe client behavior.
+- **`0008-long-lived-informer`** — client-go `SharedInformer`
+  sustained against a 0002-style synthetic-RV AA; drove 410,
+  AA pod restart, cert rotation, slow-handler scenarios. Status:
+  complete. See `FINDINGS/0008-long-lived-informer.md`.
+- `cert-rotation-under-watch` — partially answered by `0008` for
+  the "same CA, rotated serving cert" case (invisible to
+  informers). Still open: CA-rotation with simultaneous
+  APIService.caBundle rotation and any client-cache invalidation
+  behavior that may depend on.
+- `controller-runtime-manager-compat` — controller-runtime on top
+  of a synthetic-RV AA. `0008` only probed the raw reflector;
+  controller-runtime's cache + reconcile loop add their own
+  assumptions. Derived from `0008`.
+- `watch-list-feature-gate` — the `WatchListClient` feature gate
+  (default-on in 1.32 client-go but default-off on 1.32 servers)
+  is a different wire path. Not exercised by `0008`. Derived
+  from `0008`.
 
 ---
 
