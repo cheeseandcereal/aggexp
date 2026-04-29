@@ -26,24 +26,32 @@ Items without an `NNNN` prefix are candidates not yet started.
 layer and kubectl actually demand. Status: complete. See
 `FINDINGS/0001-raw-http-aggregation.md`.
 
-- `hello-aggregated` — smallest real aggregated apiserver using
-  `k8s.io/apiserver`. Read/write Hello resource, watch via
-  `watch.NewBroadcaster`, synthetic resourceVersion.
+**`0002-hello-aggregated`** — smallest real aggregated apiserver using
+`k8s.io/apiserver`. Read/write Hello resource, watch via
+`watch.NewBroadcaster`, synthetic resourceVersion, generated OpenAPI,
+SSA working out-of-the-box. Status: complete. See
+`FINDINGS/0002-hello-aggregated.md`.
+
 - `argocd-compat` — install ArgoCD into the kind cluster, point at
   an Application referencing our API, observe what works/breaks.
 - `flux-compat` — same with Flux.
-- `ssa-probe` — deliberately attempt server-side apply. Observe what
-  breaks, what works, what the field-manager story looks like.
 - `protobuf-probe` — can we serve `application/vnd.kubernetes.protobuf`
   for basic kinds? Does it matter?
-- `openapi-explain-minimum` — narrow probe: what is the minimum
-  OpenAPI v3 shape that makes `kubectl explain` work? Derived from
-  `0001`'s observation that `explain` fails on a structurally-valid
-  but GVR-less schema.
 - `watch-table-rendering` — (consequent-leaning) why does kubectl's
-  `-w` mode render a different table schema between renders when
-  only `BOOKMARK`s are emitted? Does emitting real `MODIFIED` events
-  smooth it out? Derived from `0001`.
+  `-w` mode render differently depending on emitted events? Derived
+  from `0001`.
+- `apf-rbac-investigation` — what minimum RBAC lets an AA run with
+  APF enabled cleanly, vs. the pragmatic `--enable-priority-and-fairness=false`
+  we used in `0002`? Consequent-leaning but operationally useful.
+
+**Retired candidates** (question already answered):
+- ~~`openapi-explain-minimum`~~ — answered by `0002`: generated
+  OpenAPI with GVK extensions from `openapi-gen` is sufficient; the
+  hand-rolled minimal schema in `0001` was not, because the
+  `x-kubernetes-group-version-kind` extension is the discriminator.
+- ~~`ssa-probe`~~ — answered by `0002`: SSA works unchanged; no
+  field-management code required on top of `rest.Patcher` +
+  generated OpenAPI + internal version registration.
 
 ## Identity handoff
 
@@ -91,6 +99,7 @@ layer and kubectl actually demand. Status: complete. See
 - `extract-runtime` — factor a `Driver` interface out of two
   experiments that demanded the same shape. Precondition: at least
   two drivers exist (e.g. `fs-driver` and `github-driver-static-pat`).
+  Not yet — `0002` is the only library-backed experiment.
 - `http-driver` — generic HTTP endpoint as a Kubernetes resource.
   The "anything as a resource" stress test.
 - `grpc-as-resource` — expose a gRPC service through aggregation.

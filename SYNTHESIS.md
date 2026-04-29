@@ -18,175 +18,185 @@ provide the evidence.
 
 ## Current state
 
-Informed by `FINDINGS/0001-raw-http-aggregation` (a hand-rolled Go
-stdlib probe against kube 1.32 / kubectl 1.35 in kind). Everything
-else remains pre-experimental hypothesis. Claims without a
-`FINDINGS/*` reference are unvalidated.
+Informed by two experiments:
+- `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
+- `FINDINGS/0002-hello-aggregated` — library-backed (`k8s.io/apiserver`)
+  stateless AA with read/write/watch + SSA.
+
+Remaining claims below without a `FINDINGS/*` reference are
+unvalidated.
 
 ## Wire protocol fidelity
 
-**The bar for `kubectl get` is lower than commonly assumed.** A stdlib-
-only HTTP handler (no `k8s.io/apiserver`) that returns correct
-`APIResourceList` discovery, a `HelloList` with `TypeMeta` +
-`ObjectMeta`, a `meta.k8s.io/v1 Table` via content negotiation, and
-`/livez` / `/readyz` is sufficient for `kubectl api-resources`,
-`kubectl get <resource>`, and `kubectl get <resource> -o yaml` to
-pass [`0001`]. Short names and minimal OpenAPI v2 / v3 stubs do not
-cause rejection. The aggregation layer tolerates legacy discovery
-shape (`APIResourceList`) when newer `APIGroupDiscoveryList` is
-requested via Accept headers — it falls back gracefully [`0001`].
+**The minimum wire contract for `kubectl get` is well below the
+library threshold** [`0001`]. A stdlib-only HTTP handler returning
+correct `APIResourceList` discovery, `TypeMeta`+`ObjectMeta`-shaped
+responses, a `meta.k8s.io/v1 Table` on content negotiation, and
+`/livez` / `/readyz` passes `kubectl api-resources`, `kubectl get`,
+`kubectl get -o yaml`. No library required.
 
-**The first break is `kubectl explain`.** Structurally-valid minimal
-OpenAPI v2/v3 documents are not enough; kubectl looks up the GVR in
-the schema index and fails with `GVR ... not found in OpenAPI schema`
-[`0001`]. The schema needs the right extensions (`x-kubernetes-group-
-version-kind`), path/component structure, or both. This suggests a
-binary distinction worth probing: either the OpenAPI is "real enough"
-(and both `explain` *and* server-side-apply start working) or it
-isn't.
+**The sharp edge is at `kubectl explain`.** Hand-rolled
+structurally-valid OpenAPI is not sufficient: kubectl's schema index
+keys off the `x-kubernetes-group-version-kind` extension on schema
+components. `openapi-gen` emits those extensions automatically via
+`openapi.NewDefinitionNamer(Scheme)`. **A library-backed AA with
+generated OpenAPI passes `kubectl explain` with zero additional
+work** [`0002`]. Without generated OpenAPI, you can approximate
+everything except GVK indexing; that specific bit is non-negotiable
+for explain.
 
-**Watch at wire level is also low-bar** — chunked NDJSON with
-`ADDED` + `BOOKMARK` events is accepted by kubectl [`0001`]. What
-kubectl does with them in `-w` mode is its own story (table rendering
-mutates between renders on the stream — consequent, implementation-
-specific). We have not yet probed the harder watch cases:
-`MODIFIED`/`DELETED` events, stale-RV 410-Gone reconnect, bookmark-
-driven RV advance, long-lived informer relist.
+**Full modern-tooling compatibility costs roughly 400 hand-written
+lines plus code generation** [`0002`]. That covers `kubectl get`,
+`kubectl explain`, `kubectl apply` (merge-patch), `kubectl apply
+--server-side` (with managedFields), and `kubectl get -w`. Server-
+side apply is free — implement `rest.Patcher` (= Getter + Updater)
+and supply generated OpenAPI; the library's generic PATCH path
+handles structured-merge-diff, managedFields tracking, and conflict
+detection.
+
+**The internal version is not optional** [`0002`]. The generic PATCH
+machinery converts incoming versioned objects to the group's
+internal hub version before applying merges. Registering only the
+external `v1` fails SSA and strategic-merge patches with `no kind
+... is registered for the internal version`. Even when internal and
+external types are byte-identical, both must be present in the
+scheme with 1:1 conversion funcs.
 
 Open questions:
 
-- What exact OpenAPI v3 shape does `kubectl explain` require? (Likely
-  `hello-aggregated` or `ssa-probe` will answer.)
-- How tolerant is the ecosystem (ArgoCD, Flux, controller-runtime) of
-  a server that honors the protocol approximately vs. exactly?
-- Does server-side apply work if we emit the right OpenAPI, or does
-  it need independent machinery (fieldmanager, managedFields)?
+- How tolerant is ArgoCD / Flux / controller-runtime of a watch
+  with synthetic resourceVersion under sustained load?
+- How does our stateless AA behave when the pod restarts mid-watch?
+- What fraction of the generated OpenAPI (~130KB for a single type)
+  can be trimmed while preserving kubectl behavior?
 
 ## Identity handoff
 
-**Baseline: the aggregation layer forwards more identity metadata than
-just user + groups.** The probe received `X-Remote-Extra-
-Authentication.kubernetes.io%2Fcredential-Id` with an X.509 SHA256
-fingerprint, with no additional configuration on kube-apiserver or
-the AA side [`0001`]. Whatever extras kube-apiserver's authenticators
-populate into `user.Info.Extra` flow through as `X-Remote-Extra-*`
-headers with `/` escaped as `%2F`.
+**Baseline: the aggregation layer forwards more identity metadata
+than just user + groups** [`0001`, `0002`]. `X-Remote-User`,
+`X-Remote-Group`, and `X-Remote-Extra-*` (with `/` escaped as `%2F`)
+arrive at the AA with kube-apiserver's mTLS aggregator client cert
+validating the handoff. In kube 1.32, client-cert authenticators
+populate `X-Remote-Extra-Authentication.kubernetes.io%2FCredential-Id`
+with the X.509 SHA256 fingerprint automatically — no opt-in.
 
-This upgrades the Extra-forwarding question from "is it possible?" to
-"it is happening by default; what are the consequences?" The security
-model must assume that extras already surface in the AA. Anything
-sensitive that a future authenticator stashes in extras will be
-visible to the AA.
+The security model must assume: **whatever kube-apiserver's
+authenticators populate into `user.Info.Extra` will reach the AA.**
+The library's `DelegatingAuthenticator` honors the
+`extension-apiserver-authentication` configmap protocol transparently;
+we call `UserFrom(ctx)` and get the identity.
 
-**Bearer tokens are stripped — confirmed.** No `Authorization` header
-reached the probe. Identity → credential exchange for downstream
-backends must happen at the AA, not through forwarding.
-
-**Internal control-plane traffic is mixed in.** The AA receives
-requests with `X-Remote-User=[system:kube-aggregator]` and
-`X-Remote-Group=[system:masters]` during discovery / openapi refresh
-[`0001`]. Worth filtering when analyzing identity-based behavior.
+**Bearer tokens do not forward.** An AA that needs a downstream
+credential must do identity → credential exchange itself. This is
+architectural, not a bug.
 
 Open questions:
 
-- What is the complete set of extras populated by each authenticator
-  type (client cert, SA token, OIDC)? The credential-id was a
-  surprise; what else is already in there?
-- What's the cleanest pattern for "do X on behalf of the caller" when
-  the caller is Kubernetes-native and the target speaks a different
-  identity? (Broker pattern, workload-identity federation.)
+- Complete enumeration of what each authenticator type populates
+  into `user.Info.Extra`. Credential-Id was the surprise; what
+  else is already in there?
+- Cleanest pattern for "do X on behalf of the caller" to systems
+  that don't speak Kubernetes identity (GitHub, AWS, etc.).
 
 ## Storage independence
 
-Hypothesis (unchanged, unvalidated beyond the stateless probe
-existing): an aggregated apiserver does not require etcd. The probe
-`0001` proved the stateless-on-the-way-out shape trivially (no backend
-at all). Real storage-independence with CRUD semantics is untested.
-The synthetic-watch pattern (poll + broadcast + monotonic RV) remains
-hypothetical until an experiment implements it.
+**Confirmed: an aggregated apiserver does not require etcd** [`0002`].
+Replacing `RecommendedOptions.Etcd` with a bespoke Options struct
+(the pattern metrics-server uses) is clean. The library does not
+resist the etcd-less path; it simply doesn't advertise it. The cost
+is bounded:
+
+- ~250 lines for the `rest.Storage` implementation itself (Get,
+  List, Create, Update, Delete, Watch, TableConvertor, plus identity
+  markers).
+- `watch.NewBroadcaster` handles watch fan-out.
+- A single `atomic.Uint64` stringified as decimal is an acceptable
+  resourceVersion scheme for kubectl and basic watches; stricter
+  informers remain untested.
+
+**The library is built around generic-store assumptions that the
+etcd-less path must replicate manually.** `NewDefaultAPIGroupInfo` +
+`VersionedResourcesStorageMap` is generic over `rest.Storage`, so
+the plug-in point is clean. Everything after that is your code.
 
 Open questions:
 
 - Where does the polling-driven synthetic-watch pattern break at
-  scale?
-- What is the smallest viable resourceVersion scheme that satisfies
-  client-go's relist semantics without backend state to derive from?
+  scale? Not yet probed.
+- What is the smallest viable resourceVersion scheme that still
+  satisfies client-go's reflector under long-lived informers?
+- Pod-restart behavior: what do clients see when our in-memory
+  state vanishes?
 
 ## Per-request authorization
 
-**Refinement: kube-apiserver RBAC is a gate the request must pass
-before the AA ever sees it.** `kubectl --as alice get hellos` was
-rejected by kube-apiserver with `Forbidden` before reaching the probe
-[`0001`]. This means a custom authorizer in the AA is **additive** —
-it can only restrict further, not expand. For custom authz to matter
-for a given user, that user must first have RBAC that permits the
-verb/resource.
+**Refinement standing from `0001`, unchanged by `0002`**: kube-
+apiserver RBAC is a gate the request must pass before the AA ever
+sees it. `kubectl --as alice get hellos` is rejected upstream. A
+custom authorizer in the AA is additive — it can only restrict
+further, not expand — unless RBAC is made permissive first.
 
-Two patterns emerge:
-1. Grant permissive RBAC upstream (e.g. `system:authenticated` gets
-   `get`/`list`/`watch` on the group) and make the AA's authorizer
-   the real gate. Makes the AA's authorizer the security-relevant
-   decision point.
-2. Keep RBAC strict upstream and use the AA's authorizer only for
-   finer-grained decisions *within* what RBAC already allows.
+Two patterns:
+1. Permissive RBAC upstream; the AA's authorizer is the real
+   decision point. Breaks `kubectl auth can-i` as a meaningful tool
+   because `can-i` asks RBAC, not the AA.
+2. Strict RBAC upstream; AA authorizer decides finer gradations
+   within what RBAC allows. `can-i` remains useful but the AA is
+   consulted only for the subset of already-authorized requests.
 
-The pattern choice has meaningful UX implications: with pattern 1,
-`kubectl auth can-i` is meaningless (it asks RBAC, not the AA). With
-pattern 2, `can-i` remains useful but the AA's authorizer is only
-ever consulted for the subset of users/verbs that RBAC pre-approves.
+Both `0001` and `0002` ran without a custom authorizer. The real
+test is the queued `custom-authorizer-external-policy` experiment.
 
 Open questions:
 
-- Does `SubjectAccessReview` from the AA back to kube-apiserver
+- Does `SubjectAccessReview` from AA back to kube-apiserver
   preserve the interaction pattern, or is it orthogonal?
-- What is the performance budget for a per-request authz call to an
-  external policy service?
-- How does pattern 1 interact with standard tooling that consults
-  `can-i` / SelfSubjectRulesReview before attempting an action?
+- Performance budget for a per-request authz call to an external
+  policy service — what do kubectl, controller-runtime, and
+  ArgoCD each tolerate?
+- How does `can-i` / `SelfSubjectRulesReview` behave under the
+  permissive-RBAC + strict-AA-authz pattern?
 
 ## Resource modeling freedom
 
-Untested beyond the trivial `Hello` resource in `0001`. Hypothesis
+Still untested beyond the trivial `Hello` resource. Hypothesis
 (unchanged): anything with an addressable identity and a schema can
-be projected as a Kubernetes resource. The interesting boundaries —
+be projected as a Kubernetes resource. Interesting boundaries —
 backends without stable names, without list operations, without
-deletion primitives — remain unprobed.
+deletion primitives, with inconsistent schema — all unprobed.
+
+Drivers on the menu: `fs-driver`, `github-driver-static-pat`,
+`http-driver`.
 
 ## Watch and consistency semantics
 
-**Watch mechanically works at the wire level** [`0001`]. What kubectl
-does client-side with a minimally-spec'd watch stream is complicated
-and partially surprising (table schema changing between renders in
-watch mode) — but those surprises are currently consequent and
-plausibly resolvable with richer event emissions (`MODIFIED`,
-`DELETED`).
+**Watch mechanically works at both levels** [`0001`, `0002`]. stdlib
+chunked-NDJSON with hand-built events; `watch.NewBroadcaster` +
+`WatchWithPrefix` in the library-backed path. kubectl renders both.
 
-The harder questions — stale-RV 410-Gone handling, bookmark-driven
-RV advance in informers, controller-runtime informers past the
-relist boundary — are all untested because the probe's
-`resourceVersion`s are static.
+**A single monotonic `atomic.Uint64` is a workable synthetic
+resourceVersion** [`0002`]. kubectl does not complain about it.
+client-go's reflector semantics (relist on 410-Gone) suggest that
+under real informer load we should `ResourceExpired` any old-RV
+watch we cannot replay — our current implementation does that.
 
-Open questions:
+Still untested:
 
-- What watch behavior does a long-lived controller-runtime informer
-  actually require? Bookmarks? Strict RV monotonicity? Precisely
-  correct event ordering?
-- What happens when the AA's serving cert rotates mid-watch? Does the
-  client reconnect cleanly?
-- If the backend emits its own change events, can we skip polling
-  entirely?
+- Long-lived controller-runtime informers past the relist boundary.
+- Cert rotation mid-watch.
+- Real backend-change-driven watch (vs. polling or synthetic).
 
 ---
 
 ## Process observations
 
-One early observation worth noting: the start-of-task reading ritual
-in `AGENTS.md` is only useful if FINDINGS are dense enough to be
-worth reading. This first FINDINGS file leans long because `0001`
-produced a lot of signal; a thin probe with a thin findings file
-would not benefit future agents much. The rule of thumb is forming:
-**findings files should be proportional to the signal produced, not
-to the effort expended.**
+Two experiments in; one meta observation so far: **findings files
+should be proportional to the signal produced, not the effort
+expended.** `0001` produced dense signal (first real contact with
+the aggregation layer); its findings is long. `0002` produced
+focused signal (four specific hypotheses tested, three confirmed);
+its findings is also long but could have been shorter had the
+experiment been less productive.
 
-No rewrite of ETHOS/AGENTS is needed yet. If a pattern emerges of
-agents over- or under-writing FINDINGS, revisit.
+No rewrite of ETHOS/AGENTS is warranted yet. If a pattern emerges
+of agents over- or under-writing FINDINGS, revisit.
