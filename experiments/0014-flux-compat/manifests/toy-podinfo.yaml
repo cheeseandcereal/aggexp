@@ -1,0 +1,33 @@
+# Toy Flux source + Kustomization. Not related to aggexp.io — the
+# point is to confirm (or refute) that Flux's normal sync flow is not
+# blocked by its discovery-time behavior on our AA.
+#
+# Source: stefanprodan/podinfo is a long-standing Flux demo repo. The
+# kustomize/ path renders a Namespace, a Deployment, and a Service —
+# pure vanilla Kubernetes objects; no aggregated API resources.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/stefanprodan/podinfo
+  ref:
+    branch: master
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 1m
+  path: ./kustomize
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: podinfo
+  targetNamespace: default
+  timeout: 2m
