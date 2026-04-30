@@ -1,0 +1,8 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: hello
+  namespace: default
+spec:
+  title: "Hello from 0021"
+  body: "This is a Note served by note-aa (substrate) via note-backend (gRPC)."

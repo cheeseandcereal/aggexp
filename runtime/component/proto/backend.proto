@@ -1,0 +1,236 @@
+// Package backend defines the RPC between a generic Kubernetes-aware
+// "component server" (this substrate package) and a resource-specific
+// "backend" that speaks plain CRUD. Objects travel as JSON bytes so
+// the proto does not need a message per user resource type.
+//
+// This shape was extracted from experiments 0013, 0017, and 0018,
+// which together established that:
+//
+//   - CRUD / watch / discovery / table rendering can be fully
+//     honored by a generic component server over a resource-opaque
+//     gRPC protocol.
+//   - `kubectl explain` requires the backend's OpenAPI v3 schema
+//     composed into the apiserver's defs map, keyed at the Go
+//     canonical name of the Scheme's sample object, with an
+//     `x-kubernetes-group-version-kind` extension on the schema.
+//   - Server-Side Apply additionally requires a typed Go wrapper
+//     (dyn.Object) registered under the target GVK, because the
+//     library's SSA path calls `scheme.New(gvk)` and relies on
+//     `typeToGVK` to attribute a kind — which empty
+//     *unstructured.Unstructured instances never populate.
+//
+// Regenerate with (from the repo root):
+//
+//   protoc --go_out=. --go_opt=paths=source_relative \
+//     --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+//     runtime/component/proto/backend.proto
+//
+// See runtime/component/doc.go for when to reach for this substrate
+// vs runtime/storage's in-process Backend interface.
+
+syntax = "proto3";
+
+package aggexp.component.v1;
+
+option go_package = "github.com/cheeseandcereal/aggexp/runtime/component/proto;componentpb";
+
+service Backend {
+  // GetSchema is called once at component-server startup. The backend
+  // describes the resource it serves. The component server then
+  // registers that resource with its generic apiserver dynamically.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+
+  // Get returns a single object by namespace+name. On not-found the
+  // backend returns status.code = NOT_FOUND; the component server
+  // translates that into a Kubernetes 404.
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // List returns all objects in a namespace (or cluster-wide if the
+  // resource is cluster-scoped).
+  rpc List(ListRequest) returns (ListResponse);
+
+  // Create stores a new object. The backend assigns UID /
+  // creationTimestamp; the component server assigns resourceVersion
+  // on the watch fanout.
+  rpc Create(CreateRequest) returns (CreateResponse);
+
+  // Update replaces an object. ForceAllowCreate indicates upsert
+  // semantics (PATCH with apply).
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+
+  // Apply is the backend hook for Server-Side Apply. It receives the
+  // final, merged object computed by the component server's field
+  // manager plus the caller's field-manager name. A simple backend
+  // may implement this as a thin wrapper around Update.
+  rpc Apply(ApplyRequest) returns (ApplyResponse);
+
+  // Delete removes an object.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // Watch opens a long-running server stream. The backend pushes
+  // WatchEvent messages until the client closes the stream or the
+  // server errors.
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+}
+
+// UserInfo carries the forwarded aggregation-layer identity. Mirrors
+// k8s.io/apiserver/pkg/authentication/user.Info without the package
+// dependency.
+message UserInfo {
+  string name = 1;
+  string uid = 2;
+  repeated string groups = 3;
+  map<string, StringList> extra = 4;
+}
+
+message StringList {
+  repeated string values = 1;
+}
+
+// TableColumn is a minimal mirror of metav1.TableColumnDefinition.
+message TableColumn {
+  string name = 1;
+  string type = 2;
+  string format = 3;
+  string description = 4;
+  int32 priority = 5;
+}
+
+message GetSchemaRequest {}
+
+message GetSchemaResponse {
+  // GVR identifies the resource.
+  string group = 1;
+  string version = 2;
+  string resource = 3;  // plural, lowercase, used in URLs
+  string kind = 4;      // CamelCase singular
+  string singular = 5;  // lowercase singular, used by kubectl
+
+  // Namespaced is true for namespace-scoped resources.
+  bool namespaced = 6;
+
+  // Writable indicates whether the backend accepts Create/Update/Delete.
+  bool writable = 7;
+
+  // OpenAPIV3 is a JSON-encoded OpenAPI v3 schema object for the
+  // resource's top-level type. Should include the
+  // `x-kubernetes-group-version-kind` extension; the component
+  // server stamps it defensively when missing.
+  bytes openapi_v3 = 8;
+
+  // Columns is the list of kubectl-get table columns.
+  repeated TableColumn columns = 9;
+
+  // RowFields are jsonpath-style field references the component
+  // server will extract from each object for each table row. Length
+  // should match Columns. A missing / unresolvable field renders as
+  // the empty string.
+  repeated string row_fields = 10;
+
+  // ShortNames is kubectl's short-name list (e.g. ["no", "nt"]).
+  repeated string short_names = 11;
+
+  // Categories is kubectl's category list (e.g. ["all"]).
+  repeated string categories = 12;
+
+  // SupportsServerSideApply is an opt-in. When true, the component
+  // server wires the Apply RPC.
+  bool supports_server_side_apply = 13;
+}
+
+message GetRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message GetResponse {
+  bytes object_json = 1;
+}
+
+message ListRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+}
+
+message ListResponse {
+  repeated bytes items_json = 1;
+  string resource_version = 2;
+}
+
+message CreateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  bytes object_json = 3;
+  string field_manager = 4;
+}
+
+message CreateResponse {
+  bytes object_json = 1;
+}
+
+message UpdateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  bool force_allow_create = 5;
+  string field_manager = 6;
+}
+
+message UpdateResponse {
+  bytes object_json = 1;
+  bool created = 2;
+}
+
+// ApplyRequest carries the result of the component server's own
+// Server-Side Apply field-manager computation. The backend may
+// treat this identically to Update, or may perform additional
+// bookkeeping.
+message ApplyRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  string field_manager = 5;
+  bool force = 6;
+}
+
+message ApplyResponse {
+  bytes object_json = 1;
+  bool created = 2;
+}
+
+message DeleteRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message DeleteResponse {
+  bytes object_json = 1;
+  bool deleted = 2;
+}
+
+message WatchRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+  // ResourceVersion starts the watch at a point in time. Empty
+  // string or "0" means "from now with an initial list snapshot".
+  string resource_version = 4;
+}
+
+enum EventType {
+  EVENT_UNSPECIFIED = 0;
+  EVENT_ADDED = 1;
+  EVENT_MODIFIED = 2;
+  EVENT_DELETED = 3;
+  EVENT_BOOKMARK = 4;
+}
+
+message WatchEvent {
+  EventType type = 1;
+  bytes object_json = 2;
+}

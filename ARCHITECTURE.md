@@ -11,12 +11,12 @@ architecture actually shifts.
 
 ## Current state
 
-The first substrate promotion has landed. `runtime/` holds four
-packages, extracted from the shared shape between 0002-hello-
-aggregated (in-memory) and 0004-github-driver-static-pat (polling
-external). `drivers/` is still empty; no driver has been promoted
-because no two experiments have yet demanded an identically-shaped
-concrete backend.
+Two substrate promotions have landed. `runtime/` holds the original
+four packages plus a `runtime/component/` family extracted from the
+KRM component-server arc (experiments 0013 + 0017 + 0018). `drivers/`
+is still empty; no driver has been promoted because no two
+experiments have yet demanded an identically-shaped concrete
+backend.
 
 ### `runtime/` package tree
 
@@ -32,18 +32,77 @@ runtime/
 │   ├── authorizer.go
 │   └── authorizer_test.go
 ├── storage/                  — Backend interface + rest.Storage adapter
+│   │                           (in-process library consumer path)
 │   ├── doc.go
 │   ├── backend.go
 │   ├── adapter.go
 │   ├── helpers.go
 │   └── adapter_test.go
-└── group/                    — API-group installer
-    ├── doc.go
-    ├── group.go
-    └── group_test.go
+├── group/                    — API-group installer
+│   ├── doc.go
+│   ├── group.go
+│   └── group_test.go
+└── component/                — deployable component-server path
+                                (gRPC-backed rest.Storage; polyglot
+                                backends; resource-shape discovered
+                                at startup via the Backend service)
+    ├── doc.go                — when to use component vs library
+    ├── api.go                — Options, NewOptions, AddFlags, Run
+    ├── api_test.go
+    ├── proto/                — gRPC protocol + committed bindings
+    │   ├── doc.go
+    │   ├── backend.proto
+    │   ├── backend.pb.go
+    │   └── backend_grpc.pb.go
+    ├── scheme/               — dyn.Object typed wrapper + dynamic
+    │   │                       Scheme builder (internal+external GV)
+    │   ├── doc.go
+    │   ├── object.go
+    │   ├── scheme.go
+    │   └── scheme_test.go
+    ├── openapi/              — backend-OpenAPI-into-defs-map helpers
+    │   │                       and committed openapi-gen output for
+    │   │                       meta/v1 + runtime + unstructured
+    │   ├── doc.go
+    │   ├── compose.go
+    │   ├── generated.go
+    │   └── compose_test.go
+    └── grpcbackend/          — rest.Storage adapter proxying to the
+        │                       Backend gRPC service
+        ├── doc.go
+        ├── rest.go
+        └── rest_test.go
 ```
 
-Total substrate: ~1,030 lines of code + ~600 lines of tests.
+Substrate totals as of the second promotion: approximately 2,200
+lines of Go + ~900 lines of tests, plus ~2,700 lines of committed
+openapi-gen output and ~2,000 lines of committed proto bindings
+(both amortized across every component-mode consumer).
+
+### Two consumer shapes
+
+An experiment that wants an aggregated API picks one of:
+
+1. **Library mode** — link against `runtime/server` +
+   `runtime/group` + `runtime/storage`, implement
+   `runtime/storage.Backend` for the resource. Used by 0002, 0007,
+   0009, 0010, 0011. Best for Go-native backends, typed resource
+   models with codegen'd deepcopy, and experiments where the
+   backend is a library-level consumer.
+
+2. **Component mode** — use `runtime/component.Run` in a tiny
+   `main.go`; implement the `runtime/component/proto.Backend`
+   gRPC service in a separate process (possibly a different
+   language). Used by 0013, 0017, 0018, 0021. Best for polyglot
+   backends, for amortizing the apiserver wiring cost across many
+   backends, or for cases where the backend must run in a
+   different security/trust domain.
+
+Both modes share `runtime/server` (the Options + generic-apiserver
+Config + Run), `runtime/group` (the API-group installer), and
+`runtime/authz` (the external-HTTP-policy Authorizer). The choice
+is in how `rest.Storage` is implemented, not in the apiserver
+plumbing.
 
 ### Per-request request flow
 
@@ -161,6 +220,11 @@ APIService common to all experiments.
   0002+0004's shared shape. See
   `FINDINGS/0007-runtime-fs-driver.md` for how the extracted
   substrate behaved when driven by a new (filesystem) backend.
+- **2026-04-29** — second promotion. Extracted
+  `runtime/component/` (proto, scheme, openapi, grpcbackend + the
+  top-level api.go) from the shared shape between 0013, 0017, and
+  0018. See `FINDINGS/0021-runtime-component-parity.md` for how
+  the extracted substrate behaved when driven by a fresh consumer.
 
 ## Anticipated next substrate work (not commitments)
 
