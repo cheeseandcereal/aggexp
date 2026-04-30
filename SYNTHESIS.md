@@ -18,11 +18,11 @@ provide the evidence.
 
 ## Current state
 
-Informed by thirteen experiments:
+Informed by eighteen experiments:
 
 - `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
-- `FINDINGS/0002-hello-aggregated` — library-backed (`k8s.io/apiserver`)
-  stateless AA with read/write/watch + SSA.
+- `FINDINGS/0002-hello-aggregated` — library-backed stateless AA with
+  read/write/watch + SSA.
 - `FINDINGS/0003-custom-authorizer-external-policy` — per-request
   identity-based authorization via an external HTTP policy service.
 - `FINDINGS/0004-github-driver-static-pat` — GitHub repos projected
@@ -32,33 +32,49 @@ Informed by thirteen experiments:
 - `FINDINGS/0006-identity-broker-github-app` — broker-mediated
   identity-to-backend token exchange (mock broker + mock GitHub).
 - `FINDINGS/0007-runtime-fs-driver` — third backend consuming the
-  extracted `runtime/` substrate; files on disk as `files.aggexp.io/v1`.
+  extracted `runtime/` substrate.
 - `FINDINGS/0008-long-lived-informer` — client-go SharedInformer
   sustained against a synthetic-RV AA over four probe scenarios.
-- `FINDINGS/0009-ack-aggregated-s3` — ACK-pattern inversion: AWS S3
-  Bucket as aggregated API with no local state; live reads, live
-  writes; watch via poll-diff.
+- `FINDINGS/0009-ack-aggregated-s3` — ACK-pattern inversion; stateless
+  AA over AWS S3.
 - `FINDINGS/0010-etcd-crd-facade-with-ssa` — AA as a facade over a
-  CRD served by the host kube-apiserver; recovers SSA managedFields,
-  finalizers, ownerReferences at the cost of one extra hop.
-- `FINDINGS/0011-async-backend-sim` — async-provisioning mock (30s
-  provision / 10s deprovision) fronted by a stateless AA; softens
-  0009's "async breaks the inversion" claim; surfaces the
-  `initial-events-end` bookmark gap in the substrate.
-- `FINDINGS/0012-controller-runtime-manager-compat` — controller-
-  runtime manager (not just the raw reflector) against a writable-
-  ish AA; leader election works, reconcile fires, but SSA and
-  finalizers require backend features 0007 doesn't have.
+  CRD served by the host kube-apiserver; recovers SSA/finalizers/
+  ownerReferences at the cost of one extra hop.
+- `FINDINGS/0011-async-backend-sim` — async-provisioning mock;
+  softens 0009's "async breaks the inversion" claim; surfaces the
+  `initial-events-end` bookmark gap.
+- `FINDINGS/0012-controller-runtime-manager-compat` — manager layer
+  (caches + reconcile + leader election) against a writable-ish AA.
 - `FINDINGS/0013-krm-component-skeleton` — first experiment in the
-  KRM middle-layer arc: a deployable generic component server
-  registers a resource type dynamically at startup by asking a
-  thin gRPC backend for its schema.
+  KRM middle-layer arc: a generic component server + a thin gRPC
+  backend.
+- `FINDINGS/0014-flux-compat` — sibling to 0005 with Flux; Flux's
+  default controller set does NOT do discovery-driven LIST, so the
+  0005 "one LIST failure bricks cluster cache" does not apply.
+- `FINDINGS/0015-argocd-application-targets-aa` — ArgoCD Application
+  targets a writable aggexp resource (0010's Widget). Sync, drift,
+  prune, self-heal, cascade-delete all pass. Surfaces a new facade-
+  level obligation: annotation echo causes double-tracking.
+- `FINDINGS/0016-aa-authz-aware-controllers` — three patterns for
+  coexisting AA authz with cluster controllers tested head-to-head;
+  recommendation = Pattern C (strict upstream RBAC + AA refines).
+- `FINDINGS/0017-krm-protocol-refinement` — closes 0013's two gaps.
+  `kubectl explain` works once the backend's OpenAPI is threaded
+  into the defs map; SSA works end-to-end once a typed Go wrapper
+  is registered under the GVK (library's empty-object-GVK path
+  requires a typed Scheme entry, not just typed OpenAPI).
+- `FINDINGS/0018-krm-component-parity-s3` — 0009 re-implemented as
+  a gRPC backend behind the 0013 component. User-facing parity;
+  SSA fails loudly (typed-converter) rather than silently
+  (managedFields vanish). Backend-side S3 translation is
+  essentially the same size as the linked Go version.
 
 MVP-lab and MVP-example (GitHub repos end-to-end) are both complete;
 see `FINDINGS/example-e1-github-repos.md`.
 
 `runtime/` substrate exists and is consumed by experiments 0007,
-0009, 0010, 0011, and 0013-component. See `ARCHITECTURE.md`.
+0009, 0010, 0011, plus the 0013/0017/0018 component-server
+adapters. See `ARCHITECTURE.md`.
 
 Remaining claims below without a `FINDINGS/*` reference are
 unvalidated.
@@ -121,24 +137,58 @@ every AA restart at O(objects) cost. Promotes the deterministic-UID
 candidate from "nice to have" to "load-bearing at scale."
 
 **A generic schema-dynamic component server can honor the full
-wire contract with no per-resource Go types** [`0013`]. Registering
-`*unstructured.Unstructured` against a dynamic Scheme (GVK received
-over gRPC at startup) passes `kubectl get / apply / delete / watch`,
-plus discovery, plus `explain` in degraded form. What it cannot do
-is anything that requires a typed model of the resource: SSA fails
-at `managedfields.NewTypeConverter` with "unstructured object has
-no kind"; per-field `explain` collapses to a catch-all description.
-This is the line between "wire protocol" (honor-able from
-unstructured) and "library features" (typed-model-dependent) —
-sharper than any prior experiment drew it.
+wire contract with no per-resource Go types for CRUD, but SSA and
+rich explain require a typed seam** [`0013`, `0017`, `0018`].
+0013 registered `*unstructured.Unstructured` against a dynamic
+Scheme (GVK received over gRPC at startup); CRUD + watch +
+discovery + degraded explain all passed. SSA failed at
+`managedfields.NewTypeConverter` with "unstructured object has
+no kind"; per-field explain collapsed to a catch-all description.
+0017 closed both: threading the backend's OpenAPI into the defs
+map (keyed at the Scheme's sample-object canonical name) enables
+rich explain; registering a typed Go **wrapper** under the GVK
+(content stays untyped) enables SSA end-to-end including conflict
+detection and force-conflicts. The library's SSA path has TWO
+typed-Scheme checkpoints: `NewTypeConverter` construction (closed
+by shipping real OpenAPI) and `Scheme.New(gvk)` empty-object
+creation (closed only by a typed Scheme entry). These are
+architecturally independent; 0013's initial reading conflated
+them. 0018 confirmed at the S3 scale: the component + gRPC
+backend pattern has user-facing parity with a library-linked AA;
+backend-side translation is the same size; the scheme/codegen/
+apiserver wiring is amortized into the (reusable) component
+server.
+
+**The stateless-AA + CRD-facade pattern supports real gitops
+controllers writing to our resources** [`0015`]. ArgoCD
+Application can target a `Widget` (0010's CRD-facade AA), do SSA
+via its own field manager, detect drift, re-apply, prune, and
+cascade-delete. The 0010 apiVersion + field-path rewrite on
+managedFields survives a non-kubectl field manager. Effectively
+closes the `ssa-managedfields-in-backend` candidate for the
+CRD-facade case. **New facade-level obligation**: tracking
+annotations stamped by ecosystem controllers (argocd's
+`tracking-id`) cause double-tracking when the facade passes
+annotations through to the backing CRD verbatim. ArgoCD sees both
+the exposed Widget and the backing WidgetStorage as managed and
+auto-prune breaks. A facade needs an annotation allowlist, not
+just a field-path rewrite.
+
+**Flux's default controller set does NOT exercise our AA unless
+a Kustomization inventory targets our resource** [`0014`]. The
+"one LIST failure bricks cluster cache" pattern from 0005
+applies specifically to ArgoCD's gitops-engine and to
+kube-controller-manager; Flux's source / kustomize / helm /
+notification controllers start EventSources only on their own
+CRDs. The authz-aware-controllers threat model is narrower than
+0005 implied.
+
+controller-runtime's manager layer and the substrate's watch
+behavior under real reflectors are covered in the Watch and
+consistency semantics section below.
 
 Open questions:
 
-- How does Flux's source-controller / kustomize-controller behave?
-  `0005` only covered ArgoCD. Queued as `0014-flux-compat`.
-- Can the SSA typed-converter be driven by an OpenAPI schema
-  shipped over the wire at component-server startup, instead of a
-  compile-time typed scheme? Queued as `0017-krm-protocol-refinement`.
 - `WatchListClient` (1.32 client-go default-on, server default-off)
   is a different wire path than classic list-then-watch. Untested
   against our AA.
@@ -383,11 +433,30 @@ cluster-wide controller that auto-discovers-and-watches every API
 group its RBAC permits**. ArgoCD's gitops-engine cluster cache
 treats one LIST failure as fatal for the *whole* cache, so an
 unrelated ArgoCD Application stays stuck at `sync=Unknown` because
-our AA 403'd the `argocd-application-controller` SA. Controller
-SAs must be explicitly allow-listed in the policy, or the policy
-must allow broad `get/list/watch` for any `system:serviceaccount:*`,
-or the architectural split must be "strict RBAC upstream + AA
-refines" rather than "permissive RBAC + AA is the real gate."
+our AA 403'd the `argocd-application-controller` SA. The hazard is
+**narrower than 0005 first implied** [`0014`]: Flux's default
+controllers do not discovery-LIST our resources, and
+kube-controller-manager has its own story. The population of
+"cluster controllers that auto-discover-and-LIST every API group
+they have RBAC for" is small. Still, the pattern matters for any
+cluster that runs ArgoCD.
+
+**Three mitigation patterns were tested head-to-head** [`0016`]:
+Pattern A (allow-list controller SAs by name in the policy),
+Pattern B (blanket `system:serviceaccount:*` allow for reads),
+Pattern C (strict upstream RBAC with no permissive
+`system:authenticated` binding — only RBAC-bound SAs reach the
+AA, which refines further). All three unblock ArgoCD; they
+differ in where denials originate, what the caller sees, what
+`kubectl auth can-i` reports, and maintenance overhead. **Pattern
+C (strict-RBAC + AA-refines) is the recommended default**:
+smallest blast radius under compromised SA, smallest rule set,
+`can-i` truthful for reads (gated by RBAC) though still lying for
+writes (refined by AA), new controllers handled by standard
+ClusterRoleBindings. Tradeoff: no AA-side observability of
+denied read attempts (audit moves to kube-apiserver). Pattern B
+is rejected as it negates identity-aware authz; Pattern A is the
+fallback if AA-side audit of denied reads is required.
 
 **Authorizer-as-gate and broker-as-gate are different positions**
 [`0006`]. Both are valid. The authorizer runs before the handler
@@ -536,13 +605,14 @@ Still unmeasured:
 
 ## Process observations
 
-Six observations after thirteen experiments and one substrate
+Seven observations after eighteen experiments and one substrate
 promotion:
 
 1. **Findings proportional to signal** holds. Dense experiments
-   (0001, 0002, 0003, 0006, 0008, 0009, 0010, 0011, 0013)
-   produced long FINDINGS; lean ones (0005, 0007, 0012) produced
-   tighter ones. Agents have not been padding.
+   (0001, 0002, 0003, 0006, 0008, 0009, 0010, 0011, 0013, 0015,
+   0016, 0017, 0018) produced long FINDINGS; lean ones (0005,
+   0007, 0012, 0014) produced tighter ones. Agents have not been
+   padding.
 2. **Parallel agents on the same kind cluster clobbered each
    other's state** during the 0005/0008 arcs. Each agent created
    its own `aggexp-<slug>` cluster after the first collision.
@@ -585,6 +655,12 @@ promotion:
    recovery was well-defined. Worth noting in AGENTS.md's
    parallel-dispatch section: "if a sub-agent is interrupted,
    resume from its worktree rather than re-dispatching."
+7. **Parallel agents across waves occasionally cross kubeconfig
+   contexts.** Observed in both the Wave 1 and Wave 2 arcs. One
+   agent's kubectl operations silently retargeted another
+   agent's cluster. Mitigation in the moment: each agent sets a
+   per-experiment `KUBECONFIG` env var. Worth promoting to an
+   AGENTS.md rule for the next parallel-dispatch session.
 
 The ethos itself needs no changes yet. If a pattern emerges of
 experiments going longer than they need to, or of SYNTHESIS
