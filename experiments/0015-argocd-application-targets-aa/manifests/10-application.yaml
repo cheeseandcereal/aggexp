@@ -1,0 +1,37 @@
+# ArgoCD Application targeting the in-cluster git server. Sources
+# three Widget manifests from /widgets in the seeded repository.
+#
+# syncOptions:
+#   - CreateNamespace=false : widgets are cluster-scoped, no NS needed
+#   - ServerSideApply=true  : ArgoCD issues SSA (its default), which is
+#     the key behavior this experiment probes against 0010's CRD-backed
+#     managedFields persistence.
+#   - PrunePropagationPolicy=foreground : normal GC behavior
+#
+# automated.prune=true is ON so we can test pruning by removing a
+# manifest from the Git content and watching Argo prune the Widget.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aggexp-widgets
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: http://git-server.git-server.svc:8080/aggexp.git
+    targetRevision: HEAD
+    path: .
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=false

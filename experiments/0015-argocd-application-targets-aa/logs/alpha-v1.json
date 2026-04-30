@@ -1,0 +1,90 @@
+{
+  "kind": "Widget",
+  "apiVersion": "aggexp.io/v1",
+  "metadata": {
+    "name": "alpha",
+    "uid": "14a22977-7d15-418e-8aa1-67e68b55070d",
+    "resourceVersion": "3024",
+    "generation": 4,
+    "creationTimestamp": "2026-04-30T05:55:20Z",
+    "labels": {
+      "managed-by": "argocd-experiment-0015",
+      "role": "primary"
+    },
+    "annotations": {
+      "argocd.argoproj.io/tracking-id": "aggexp-widgets:aggexp.io/Widget:default/alpha"
+    },
+    "managedFields": [
+      {
+        "manager": "argocd-controller",
+        "operation": "Apply",
+        "apiVersion": "aggexp.io/v1",
+        "time": "2026-04-30T05:56:57Z",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:metadata": {
+            "f:annotations": {
+              "f:argocd.argoproj.io/tracking-id": {}
+            },
+            "f:labels": {
+              "f:managed-by": {},
+              "f:role": {}
+            }
+          },
+          "f:spec": {
+            "f:tags": {
+              "f:env": {},
+              "f:revision": {},
+              "f:source": {}
+            }
+          }
+        }
+      },
+      {
+        "manager": "aggexp-widgets",
+        "operation": "Update",
+        "apiVersion": "aggexp.io/v1",
+        "time": "2026-04-30T05:56:57Z",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:metadata": {
+            "f:annotations": {
+              ".": {},
+              "f:argocd.argoproj.io/tracking-id": {}
+            },
+            "f:labels": {
+              ".": {},
+              "f:managed-by": {},
+              "f:role": {}
+            }
+          },
+          "f:spec": {
+            ".": {},
+            "f:description": {},
+            "f:counter": {},
+            "f:tags": {
+              ".": {},
+              "f:env": {},
+              "f:revision": {},
+              "f:source": {}
+            }
+          },
+          "f:status": {
+            ".": {},
+            "f:observedCounter": {}
+          }
+        }
+      }
+    ]
+  },
+  "spec": {
+    "description": "alpha widget synced from Git (revision v1)",
+    "counter": 1,
+    "tags": {
+      "env": "lab",
+      "revision": "v1",
+      "source": "argocd"
+    }
+  },
+  "status": {}
+}

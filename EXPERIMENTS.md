@@ -51,17 +51,24 @@ Status: complete. See `FINDINGS/0013-krm-component-skeleton.md`.
   cluster cache" pattern from 0005 does not apply. Flux never
   touched our AA across a 10-minute observation through an AA
   outage. Status: complete. See `FINDINGS/0014-flux-compat.md`.
-- `flux-applies-a-repo` — derived from `0014`. The probed
-  configuration had our AA off to the side. If a Flux Kustomization
-  rendered a `Repo` object as part of its inventory, kustomize-
-  controller would register a PartialObjectMetadata informer on
-  `repos.aggexp.io` and Flux would start exercising our AA's wire
-  path. Depends on a writable AA (MVP-example E3). Analog of
-  `argocd-application-targets-aa`.
-- `argocd-application-targets-aa` — ArgoCD Application directly
-  targets a `Repo` (requires writable AA; depends on MVP-example E3
-  prerequisites). Probes ArgoCD's behavior when the AA refuses
-  writes vs. when it refuses reads. Derived from `0005`.
+- **`0015-argocd-application-targets-aa`** — ArgoCD Application
+  targets a writable aggregated resource (0010's `widgets.aggexp.io/v1`
+  Widget, CRD-backed facade). Initial sync, drift+re-apply, prune,
+  self-heal, and cascade-delete all pass end-to-end. Surfaces a new
+  facade-level obligation: ecosystem controllers that stamp tracking
+  annotations (argocd's `tracking-id`) cause double-tracking when
+  the facade passes annotations through to the backing CRD
+  verbatim. Status: complete. See
+  `FINDINGS/0015-argocd-application-targets-aa.md`.
+- `flux-applies-a-repo` — derived from `0014` + sharpened by
+  `0015`. The probed 0014 configuration had our AA off to the
+  side. If a Flux Kustomization rendered a `Repo` (or `Widget`)
+  object as part of its inventory, kustomize-controller would
+  register a PartialObjectMetadata informer on our group and Flux
+  would start exercising our AA's wire path. Does Flux's
+  kustomize inventory (ConfigMap-tracked) avoid the "double-
+  tracked via annotation echo" problem 0015 hit with ArgoCD?
+  Depends on a writable AA (0010 works).
 - `protobuf-probe` — can we serve `application/vnd.kubernetes.protobuf`
   for basic kinds? Does it matter?
 - `watch-table-rendering` — (consequent-leaning) why does kubectl's
@@ -159,6 +166,12 @@ Status: complete. See `FINDINGS/0013-krm-component-skeleton.md`.
   a small apiVersion / field-path rewrite. Still open for
   non-CRD backends where the encoding has to live in backend-
   native metadata (S3 tags, GitHub description fields).
+- `facade-annotation-allowlist` — extend 0010's facade to
+  allow-list which annotations cross the exposed→storage
+  boundary. 0015 found that passing `argocd.argoproj.io/tracking-id`
+  through to the backing CRD causes ArgoCD's cluster cache to
+  see each widget as two managed resources (one per GVK) and
+  breaks auto-prune. Derived from `0015`.
 - ~~`async-backend-sim`~~ — answered by `0011`.
 - `cross-resource-references` — two resource types where one
   references the other; probes declarative-apply ordering under
@@ -318,7 +331,10 @@ Possible follow-on examples (no commitment):
   authz-vs-admission boundary (name-based creation policy).
 - **E4**: ArgoCD syncs a `Repo` manifest from a Git repository.
   Prerequisite `0005-argocd-compat` is complete; the wire
-  side is confirmed. The remaining dependency is a writable AA
-  (MVP-example E3) plus handling the `aa-authz-aware-controllers`
-  gap `0005` uncovered (ArgoCD's SA must be allow-listed or
-  policy structure must change).
+  side is confirmed. `0015-argocd-application-targets-aa` confirmed
+  ArgoCD's write-side behavior against a 0010-style writable
+  aggregated API (sync, drift, prune, self-heal, cascade all
+  work). The remaining dependencies are (a) MVP-example E3
+  (writable Repo AA with identity-aware creation semantics) and
+  (b) handling the `aa-authz-aware-controllers` gap `0005`
+  uncovered.

@@ -1,0 +1,155 @@
+I0430 05:34:39.405100       1 dynamic_serving_content.go:116] "Loaded a new cert/key pair" name="serving-cert::/etc/aggexp/certs/tls.crt::/etc/aggexp/certs/tls.key"
+I0430 05:34:39.848516       1 envvar.go:172] "Feature gate default state" feature="ClientsAllowCBOR" enabled=false
+I0430 05:34:39.848532       1 envvar.go:172] "Feature gate default state" feature="ClientsPreferCBOR" enabled=false
+I0430 05:34:39.848536       1 envvar.go:172] "Feature gate default state" feature="InformerResourceVersion" enabled=false
+I0430 05:34:39.848540       1 envvar.go:172] "Feature gate default state" feature="WatchListClient" enabled=false
+I0430 05:34:39.852617       1 requestheader_controller.go:255] Loaded a new request header values for RequestHeaderAuthRequestController
+I0430 05:34:39.854319       1 maxinflight.go:139] "Initialized nonMutatingChan" len=400
+I0430 05:34:39.854328       1 maxinflight.go:145] "Initialized mutatingChan" len=200
+I0430 05:34:39.854355       1 maxinflight.go:116] "Set denominator for readonly requests" limit=400
+I0430 05:34:39.854359       1 maxinflight.go:120] "Set denominator for mutating requests" limit=200
+I0430 05:34:39.856528       1 handler.go:286] Adding GroupVersion aggexp.io v1 to ResourceManager
+I0430 05:34:39.859961       1 genericapiserver.go:535] MuxAndDiscoveryComplete has all endpoints registered and discovery information is complete
+I0430 05:34:39.862583       1 requestheader_controller.go:180] Starting RequestHeaderAuthRequestController
+I0430 05:34:39.862600       1 shared_informer.go:313] Waiting for caches to sync for RequestHeaderAuthRequestController
+I0430 05:34:39.862632       1 configmap_cafile_content.go:205] "Starting controller" name="client-ca::kube-system::extension-apiserver-authentication::client-ca-file"
+I0430 05:34:39.862640       1 shared_informer.go:313] Waiting for caches to sync for client-ca::kube-system::extension-apiserver-authentication::client-ca-file
+I0430 05:34:39.862643       1 configmap_cafile_content.go:205] "Starting controller" name="client-ca::kube-system::extension-apiserver-authentication::requestheader-client-ca-file"
+I0430 05:34:39.862653       1 shared_informer.go:313] Waiting for caches to sync for client-ca::kube-system::extension-apiserver-authentication::requestheader-client-ca-file
+I0430 05:34:39.862853       1 dynamic_serving_content.go:135] "Starting controller" name="serving-cert::/etc/aggexp/certs/tls.crt::/etc/aggexp/certs/tls.key"
+I0430 05:34:39.862919       1 tlsconfig.go:203] "Loaded serving cert" certName="serving-cert::/etc/aggexp/certs/tls.crt::/etc/aggexp/certs/tls.key" certDetail="\"aggexp.aggexp-system.svc\" [serving] validServingFor=[127.0.0.1,aggexp.aggexp-system.svc,aggexp.aggexp-system.svc.cluster.local,aggexp,localhost] issuer=\"aggexp-ca\" (2026-04-30 05:33:26 +0000 UTC to 2036-04-27 05:33:26 +0000 UTC (now=2026-04-30 05:34:39.862881207 +0000 UTC))"
+I0430 05:34:39.863047       1 named_certificates.go:53] "Loaded SNI cert" index=0 certName="self-signed loopback" certDetail="\"apiserver-loopback-client@1777527279\" [serving] validServingFor=[apiserver-loopback-client] issuer=\"apiserver-loopback-client-ca@1777527279\" (2026-04-30 04:34:39 +0000 UTC to 2027-04-30 04:34:39 +0000 UTC (now=2026-04-30 05:34:39.863035124 +0000 UTC))"
+I0430 05:34:39.863068       1 secure_serving.go:213] Serving securely on [::]:8443
+I0430 05:34:39.863084       1 genericapiserver.go:685] [graceful-termination] waiting for shutdown to be initiated
+I0430 05:34:39.863097       1 tlsconfig.go:243] "Starting DynamicServingCertificateController"
+I0430 05:34:39.863559       1 reflector.go:376] Caches populated for *v1.ConfigMap from k8s.io/client-go@v0.32.3/tools/cache/reflector.go:251
+I0430 05:34:39.863586       1 reflector.go:376] Caches populated for *v1.ConfigMap from k8s.io/client-go@v0.32.3/tools/cache/reflector.go:251
+I0430 05:34:39.863649       1 reflector.go:376] Caches populated for *v1.ConfigMap from k8s.io/client-go@v0.32.3/tools/cache/reflector.go:251
+I0430 05:34:39.962804       1 shared_informer.go:320] Caches are synced for client-ca::kube-system::extension-apiserver-authentication::requestheader-client-ca-file
+I0430 05:34:39.962816       1 shared_informer.go:320] Caches are synced for RequestHeaderAuthRequestController
+I0430 05:34:39.962813       1 shared_informer.go:320] Caches are synced for client-ca::kube-system::extension-apiserver-authentication::client-ca-file
+I0430 05:34:39.963030       1 tlsconfig.go:181] "Loaded client CA" index=0 certName="client-ca::kube-system::extension-apiserver-authentication::client-ca-file,client-ca::kube-system::extension-apiserver-authentication::requestheader-client-ca-file" certDetail="\"kubernetes\" [] validServingFor=[kubernetes] issuer=\"<self>\" (2026-04-30 05:29:13 +0000 UTC to 2036-04-27 05:34:13 +0000 UTC (now=2026-04-30 05:34:39.963009132 +0000 UTC))"
+I0430 05:34:39.963047       1 tlsconfig.go:181] "Loaded client CA" index=1 certName="client-ca::kube-system::extension-apiserver-authentication::client-ca-file,client-ca::kube-system::extension-apiserver-authentication::requestheader-client-ca-file" certDetail="\"front-proxy-ca\" [] validServingFor=[front-proxy-ca] issuer=\"<self>\" (2026-04-30 05:29:13 +0000 UTC to 2036-04-27 05:34:13 +0000 UTC (now=2026-04-30 05:34:39.963038981 +0000 UTC))"
+I0430 05:34:39.963217       1 tlsconfig.go:203] "Loaded serving cert" certName="serving-cert::/etc/aggexp/certs/tls.crt::/etc/aggexp/certs/tls.key" certDetail="\"aggexp.aggexp-system.svc\" [serving] validServingFor=[127.0.0.1,aggexp.aggexp-system.svc,aggexp.aggexp-system.svc.cluster.local,aggexp,localhost] issuer=\"aggexp-ca\" (2026-04-30 05:33:26 +0000 UTC to 2036-04-27 05:33:26 +0000 UTC (now=2026-04-30 05:34:39.963207648 +0000 UTC))"
+I0430 05:34:39.963318       1 named_certificates.go:53] "Loaded SNI cert" index=0 certName="self-signed loopback" certDetail="\"apiserver-loopback-client@1777527279\" [serving] validServingFor=[apiserver-loopback-client] issuer=\"apiserver-loopback-client-ca@1777527279\" (2026-04-30 04:34:39 +0000 UTC to 2027-04-30 04:34:39 +0000 UTC (now=2026-04-30 05:34:39.963310686 +0000 UTC))"
+I0430 05:34:56.023382       1 backend.go:538] "crd-backend" verb="list" user="system:kube-controller-manager" groups=["system:authenticated"]
+I0430 05:39:06.450069       1 backend.go:538] "crd-backend" verb="list" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"]
+I0430 05:39:06.457324       1 backend.go:538] "crd-backend" verb="list" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"]
+I0430 05:41:05.027441       1 backend.go:538] "crd-backend" verb="list" user="system:kube-controller-manager" groups=["system:authenticated"]
+I0430 05:41:37.440956       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 05:48:19.032100       1 backend.go:538] "crd-backend" verb="list" user="system:kube-controller-manager" groups=["system:authenticated"]
+I0430 05:49:06.456777       1 backend.go:538] "crd-backend" verb="list" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"]
+I0430 05:49:06.460017       1 backend.go:538] "crd-backend" verb="list" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"]
+I0430 05:53:52.037058       1 backend.go:538] "crd-backend" verb="list" user="system:kube-controller-manager" groups=["system:authenticated"]
+I0430 05:55:20.432707       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:55:20.432734       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie"
+I0430 05:55:20.432751       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:55:20.439024       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:55:20.439220       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie"
+I0430 05:55:20.439447       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:55:20.441519       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=1 finalizers=0 ownerRefs=0
+I0430 05:55:20.441558       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo" managedFields=1 finalizers=0 ownerRefs=0
+I0430 05:55:20.441663       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie" managedFields=1 finalizers=0 ownerRefs=0
+I0430 05:55:20.904453       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:55:21.038991       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:55:21.235608       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo" managedFields=2 finalizers=0 ownerRefs=0
+I0430 05:55:21.645019       1 trace.go:236] Trace[308028161]: "Patch" accept:application/json,audit-id:fd2bc17d-6b86-4c36-86d4-16651c16377b,client:10.244.0.15,api-group:aggexp.io,api-version:v1,name:bravo,subresource:,namespace:,protocol:HTTP/2.0,resource:widgets,scope:resource,url:/apis/aggexp.io/v1/widgets/bravo,user-agent:argocd-application-controller/v0.0.0 (linux/amd64) kubernetes/$Format,verb:APPLY (30-Apr-2026 05:55:21.038) (total time: 606ms):
+Trace[308028161]: ---"About to apply patch" 196ms (05:55:21.235)
+Trace[308028161]: ---"Object stored in database" 409ms (05:55:21.644)
+Trace[308028161]: [606.025579ms] [606.025579ms] END
+I0430 05:55:28.875506       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 05:55:29.032286       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:55:50.228272       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:55:50.295168       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:56:57.289085       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:56:57.294184       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:56:57.296291       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=3 finalizers=0 ownerRefs=0
+I0430 05:57:09.097944       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:57:09.165791       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:57:14.278515       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:57:50.246760       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:57:59.678009       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:58:05.658219       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:58:05.731582       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:58:05.809361       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:58:31.360507       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:58:31.360534       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie"
+I0430 05:58:31.360575       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:58:31.365786       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie"
+I0430 05:58:31.366023       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:58:31.366119       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:58:31.367621       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie" managedFields=2 finalizers=0 ownerRefs=0
+I0430 05:58:31.367986       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo" managedFields=2 finalizers=0 ownerRefs=0
+I0430 05:58:31.367987       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=2 finalizers=0 ownerRefs=0
+I0430 05:58:31.840067       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:58:31.966514       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:58:32.163112       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=2 finalizers=0 ownerRefs=0
+I0430 05:58:32.566061       1 trace.go:236] Trace[38608266]: "Patch" accept:application/json,audit-id:c0e832a7-7bd0-42ee-aba4-6d56c857144f,client:10.244.0.15,api-group:aggexp.io,api-version:v1,name:alpha,subresource:,namespace:,protocol:HTTP/2.0,resource:widgets,scope:resource,url:/apis/aggexp.io/v1/widgets/alpha,user-agent:argocd-application-controller/v0.0.0 (linux/amd64) kubernetes/$Format,verb:APPLY (30-Apr-2026 05:58:31.966) (total time: 599ms):
+Trace[38608266]: ---"About to apply patch" 196ms (05:58:32.162)
+Trace[38608266]: ---"Object stored in database" 402ms (05:58:32.565)
+Trace[38608266]: [599.569488ms] [599.569488ms] END
+I0430 05:58:36.199212       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 05:58:36.273747       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:58:36.337808       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:58:42.017698       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:58:54.213106       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 05:59:06.460228       1 backend.go:538] "crd-backend" verb="list" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"]
+I0430 05:59:06.464536       1 backend.go:538] "crd-backend" verb="list" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"]
+I0430 05:59:22.998335       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="charlie"
+I0430 05:59:40.976876       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:59:40.976946       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:59:40.992933       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie"
+I0430 05:59:40.995472       1 backend.go:538] "crd-backend" verb="delete" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="charlie"
+I0430 05:59:41.012851       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:59:41.014475       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:59:41.119451       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 05:59:41.119486       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 05:59:41.121999       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo" managedFields=3 finalizers=0 ownerRefs=0
+I0430 05:59:41.122089       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=3 finalizers=0 ownerRefs=0
+I0430 05:59:41.782414       1 trace.go:236] Trace[840782646]: "Patch" accept:application/json,audit-id:3d7fa677-1b90-476a-87f9-9ae8a6b277dd,client:10.244.0.15,api-group:aggexp.io,api-version:v1,name:alpha,subresource:,namespace:,protocol:HTTP/2.0,resource:widgets,scope:resource,url:/apis/aggexp.io/v1/widgets/alpha,user-agent:argocd-application-controller/v0.0.0 (linux/amd64) kubernetes/$Format,verb:PATCH (30-Apr-2026 05:59:41.119) (total time: 662ms):
+Trace[840782646]: ---"Object stored in database" 660ms (05:59:41.782)
+Trace[840782646]: [662.975549ms] [662.975549ms] END
+I0430 05:59:50.612140       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 05:59:56.998466       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 05:59:57.067743       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:00:02.613085       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:00:10.068315       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:00:10.071860       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:00:10.073244       1 backend.go:538] "crd-backend" verb="update" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha" managedFields=3 finalizers=0 ownerRefs=0
+I0430 06:00:10.155335       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:00:10.178350       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:00:10.183610       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:00:10.186593       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=2 finalizers=0 ownerRefs=0
+I0430 06:00:10.196332       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:00:10.197689       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=1 finalizers=0 ownerRefs=0
+I0430 06:00:10.475276       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:00:10.670909       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=1 finalizers=0 ownerRefs=0
+I0430 06:00:11.074343       1 trace.go:236] Trace[51397483]: "Patch" accept:application/json,audit-id:ddb9d006-c43f-4570-a690-063ca4487a19,client:10.244.0.15,api-group:aggexp.io,api-version:v1,name:alpha,subresource:,namespace:,protocol:HTTP/2.0,resource:widgets,scope:resource,url:/apis/aggexp.io/v1/widgets/alpha,user-agent:argocd-application-controller/v0.0.0 (linux/amd64) kubernetes/$Format,verb:APPLY (30-Apr-2026 06:00:10.475) (total time: 599ms):
+Trace[51397483]: ---"About to apply patch" 195ms (06:00:10.670)
+Trace[51397483]: ---"Object stored in database" 403ms (06:00:11.074)
+Trace[51397483]: [599.090539ms] [599.090539ms] END
+I0430 06:00:25.233599       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:00:57.820797       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:01:07.041019       1 backend.go:538] "crd-backend" verb="list" user="system:kube-controller-manager" groups=["system:authenticated"]
+I0430 06:02:00.080368       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:02:00.083433       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:02:00.084957       1 backend.go:538] "crd-backend" verb="update" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha" managedFields=2 finalizers=0 ownerRefs=0
+I0430 06:02:00.196780       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:02:00.201257       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:02:00.202587       1 backend.go:538] "crd-backend" verb="update" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha" managedFields=1 finalizers=0 ownerRefs=0
+I0430 06:02:33.479976       1 backend.go:538] "crd-backend" verb="get" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"] name="alpha"
+I0430 06:02:41.272322       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:02:41.272386       1 backend.go:538] "crd-backend" verb="get" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 06:02:41.277690       1 backend.go:538] "crd-backend" verb="delete" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="alpha"
+I0430 06:02:41.277862       1 backend.go:538] "crd-backend" verb="delete" user="system:serviceaccount:argocd:argocd-application-controller" groups=["system:serviceaccounts","system:serviceaccounts:argocd","system:authenticated"] name="bravo"
+I0430 06:02:41.395917       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:02:44.529255       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:02:47.666970       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:02:50.801001       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:02:53.935511       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:02:57.072780       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:03:00.210761       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:03:03.347258       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:03:06.486538       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:03:09.622043       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]
+I0430 06:03:12.693908       1 backend.go:538] "crd-backend" verb="list" user="kubernetes-admin" groups=["kubeadm:cluster-admins","system:authenticated"]

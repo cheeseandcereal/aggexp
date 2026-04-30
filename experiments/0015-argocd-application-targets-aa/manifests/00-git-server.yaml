@@ -1,0 +1,129 @@
+# In-cluster Git server (smart-HTTP).
+#
+# Runs a single pod with apache2 + git-http-backend serving a bare
+# repository over the smart HTTP protocol. ArgoCD's go-git client uses
+# `--depth=1` shallow clones by default; dumb HTTP (static files) does
+# not support that, so a smart server is required.
+#
+# The container image is built from experiments/0015-.../git-server/.
+# At container start a seed.sh script rebuilds the bare repo from the
+# `/content` mount (ConfigMap) so revisions are driven by `rollout
+# restart deploy/git-server` after a ConfigMap rewrite.
+#
+# ArgoCD's repo-server clones
+# `http://git-server.git-server.svc:8080/aggexp.git`.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: git-server
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-content
+  namespace: git-server
+data:
+  widget-alpha.yaml: |
+    apiVersion: aggexp.io/v1
+    kind: Widget
+    metadata:
+      name: alpha
+      labels:
+        managed-by: argocd-experiment-0015
+        role: primary
+    spec:
+      description: "alpha widget synced from Git (revision v1)"
+      counter: 1
+      tags:
+        env: lab
+        source: argocd
+        revision: v1
+  widget-bravo.yaml: |
+    apiVersion: aggexp.io/v1
+    kind: Widget
+    metadata:
+      name: bravo
+      labels:
+        managed-by: argocd-experiment-0015
+        role: secondary
+    spec:
+      description: "bravo widget synced from Git (revision v1)"
+      counter: 2
+      tags:
+        env: lab
+        source: argocd
+        revision: v1
+  widget-charlie.yaml: |
+    apiVersion: aggexp.io/v1
+    kind: Widget
+    metadata:
+      name: charlie
+      labels:
+        managed-by: argocd-experiment-0015
+        role: tertiary
+    spec:
+      description: "charlie widget synced from Git (revision v1)"
+      counter: 3
+      tags:
+        env: lab
+        source: argocd
+        revision: v1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: git-server
+  namespace: git-server
+spec:
+  selector:
+    app: git-server
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-server
+  namespace: git-server
+  labels:
+    app: git-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: git-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: git-server
+    spec:
+      containers:
+        - name: gitsvr
+          image: aggexp-git-server:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: repo
+              mountPath: /srv/git
+            - name: content
+              mountPath: /content
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /aggexp.git/info/refs?service=git-upload-pack
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: repo
+          emptyDir: {}
+        - name: content
+          configMap:
+            name: git-content
