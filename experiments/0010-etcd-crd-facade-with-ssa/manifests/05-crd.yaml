@@ -1,0 +1,56 @@
+# CRD serving as the backing store for aggexp.io/v1 Widget.
+#
+# The AA exposes widgets.aggexp.io/v1 to clients; its storage layer
+# forwards every op to this CRD. Schema mirrors the internal Widget
+# shape with one deliberate rename:
+#   - exposed v1.Widget.spec.counter  <->  storage.spec.storedCounter
+# Everything else (ObjectMeta: managedFields, finalizers,
+# ownerReferences, labels, annotations) is carried by the CRD row
+# itself; ObjectMeta is not duplicated in the schema.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: widgetstorages.aggexpstorage.aggexp.io
+spec:
+  group: aggexpstorage.aggexp.io
+  scope: Cluster
+  names:
+    plural: widgetstorages
+    singular: widgetstorage
+    kind: WidgetStorage
+    shortNames: []
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                description:
+                  type: string
+                storedCounter:
+                  type: integer
+                  format: int32
+                tags:
+                  type: object
+                  additionalProperties:
+                    type: string
+            status:
+              type: object
+              properties:
+                observedCounter:
+                  type: integer
+                  format: int32
+      subresources:
+        # No /status subresource: the AA handles the full object as
+        # one write. Adding /status is a later experiment.

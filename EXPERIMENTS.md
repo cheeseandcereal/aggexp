@@ -107,6 +107,13 @@ SSA working out-of-the-box. Status: complete. See
   watch via poll-diff. Surfaced the SSA managedFields persistence
   problem and the sync-vs-async backend boundary. Status:
   complete. See `FINDINGS/0009-ack-aggregated-s3.md`.
+- **`0010-etcd-crd-facade-with-ssa`** — AA as a facade over a CRD
+  served by the host kube-apiserver. Storage is `dynamic.Interface`
+  calls, not a local `genericregistry.Store`. Demonstrates that
+  library features (SSA managedFields, finalizers, ownerReferences)
+  that `0009` lost work again when the backing store is a CRD — at
+  the cost of one extra kube-apiserver hop per request. Status:
+  complete. See `FINDINGS/0010-etcd-crd-facade-with-ssa.md`.
 - `external-db-driver` — postgres-backed driver; real resourceVersion
   derived from a sequence.
 - `repo-uid-stability` — use a deterministic UID scheme derived
@@ -125,6 +132,11 @@ SSA working out-of-the-box. Status: complete. See
 - `ssa-managedfields-in-backend` — encode SSA managedFields into
   the backend (S3 tags, etc.) and see whether ownership semantics
   can be recovered under the inverted model. Derived from `0009`.
+  **Absorbed for the CRD-as-backend case by `0010`**, which shows
+  that a CRD facade recovers SSA semantics with a small apiVersion /
+  field-path rewrite. Still open for non-CRD backends where the
+  encoding has to live in backend-native metadata (S3 tags, GitHub
+  description fields).
 - `async-backend-sim` — simulate an async-provisioning backend
   (30s fake delay) and see how the AA must model it. Tests the
   sync/async boundary explicitly. Derived from `0009`.
