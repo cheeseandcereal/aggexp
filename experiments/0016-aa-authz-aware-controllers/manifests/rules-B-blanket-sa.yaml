@@ -1,0 +1,32 @@
+# Pattern B: blanket allow reads for ANY ServiceAccount.
+#
+# Any principal whose user.Name starts with `system:serviceaccount:`
+# is granted get|list|watch on repos.aggexp.io. SAs cannot write; only
+# named human users (admin) can.
+#
+# Operational property: zero per-controller maintenance. Security:
+# every workload in the cluster that can mint a projected SA token can
+# observe our resource.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: policy-service-rules
+  namespace: aggexp-system
+data:
+  rules.json: |
+    {
+      "rules": [
+        { "user": "kubernetes-admin",        "verb": "*",              "allow": true,  "reason": "admin" },
+        { "group": "kubeadm:cluster-admins", "verb": "*",              "allow": true,  "reason": "cluster admins" },
+
+        { "user": "system:serviceaccount:*", "verb": "get|list|watch", "allow": true,  "reason": "B: any SA may read" },
+        { "user": "system:kube-controller-manager",
+                                             "verb": "get|list|watch", "allow": true,  "reason": "B: kube-controller-manager" },
+        { "user": "system:serviceaccount:*",                            "allow": false, "reason": "B: SAs cannot write" },
+
+        { "user": "alice",                   "verb": "get|list|watch", "allow": true,  "reason": "alice: readonly" },
+        { "user": "alice",                                              "allow": false, "reason": "alice: writes denied" },
+        { "user": "mallory",                                            "allow": false, "reason": "mallory: deny" }
+      ],
+      "default": { "allow": false, "reason": "no matching rule" }
+    }

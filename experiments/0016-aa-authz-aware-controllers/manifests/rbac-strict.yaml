@@ -1,0 +1,80 @@
+# Strict upstream RBAC used by pattern C.
+#
+# No blanket ClusterRole for system:authenticated. Only the specific
+# controller ServiceAccounts and named human users we want to reach
+# the AA are granted get|list|watch on repos.aggexp.io. Everyone else
+# is 403'd by kube-apiserver before the request ever reaches our AA.
+#
+# Writes are not granted here at all; the AA's authorizer sees only
+# GETs/LISTs/WATCHes from RBAC-approved identities, and can refine
+# writes by identity among them. In practice the only writers we
+# enumerate in the policy are admin / impersonated humans, so this
+# RBAC is write-silent on purpose.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-repos-reader
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["repos"]
+    verbs: ["get", "list", "watch"]
+---
+# ArgoCD application controller.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-repos-reader-argocd-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-repos-reader
+subjects:
+  - kind: ServiceAccount
+    name: argocd-application-controller
+    namespace: argocd
+---
+# ArgoCD applicationset controller.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-repos-reader-argocd-appset
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-repos-reader
+subjects:
+  - kind: ServiceAccount
+    name: argocd-applicationset-controller
+    namespace: argocd
+---
+# ArgoCD server (also watches).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-repos-reader-argocd-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-repos-reader
+subjects:
+  - kind: ServiceAccount
+    name: argocd-server
+    namespace: argocd
+---
+# Named human users (alice is our readonly, mallory is our deny-at-AA
+# test subject; both need to reach the AA so the authorizer can opine).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-repos-reader-users
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-repos-reader
+subjects:
+  - kind: User
+    name: alice
+    apiGroup: rbac.authorization.k8s.io
+  - kind: User
+    name: mallory
+    apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,37 @@
+# Pattern C: upstream RBAC is strict; the AA's authorizer refines.
+#
+# Coarse-grained access is gated by standard Kubernetes RBAC (see
+# 00-strict-rbac.yaml, which grants get|list|watch on repos.aggexp.io
+# only to named controller SAs, alice, and mallory — not to
+# system:authenticated at large). Any request that reaches the AA has
+# already been vetted by kube-apiserver's RBAC authorizer.
+#
+# The AA's own policy therefore doesn't need to accommodate controller
+# SAs per-name: they arrive only because RBAC says yes. The AA's job
+# here is to further constrain writes by identity. Reads are accepted
+# for anyone who made it through (`verb=get|list|watch` -> allow).
+#
+# Operational property: adding a new controller means granting it an
+# RBAC ClusterRole binding — the standard Kubernetes dance. The AA's
+# policy file does not change. But `kubectl auth can-i` now returns
+# meaningful answers for reads (which RBAC gates) and still lies about
+# writes (which the AA refines).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: policy-service-rules
+  namespace: aggexp-system
+data:
+  rules.json: |
+    {
+      "rules": [
+        { "user": "kubernetes-admin",        "verb": "*",              "allow": true,  "reason": "admin" },
+        { "group": "kubeadm:cluster-admins", "verb": "*",              "allow": true,  "reason": "cluster admins" },
+
+        { "verb": "get|list|watch",                                     "allow": true,  "reason": "C: reads allowed for anyone RBAC let through" },
+
+        { "user": "alice",                                              "allow": false, "reason": "alice: writes denied" },
+        { "user": "mallory",                                            "allow": false, "reason": "mallory: deny" }
+      ],
+      "default": { "allow": false, "reason": "no matching rule (writes not allow-listed)" }
+    }

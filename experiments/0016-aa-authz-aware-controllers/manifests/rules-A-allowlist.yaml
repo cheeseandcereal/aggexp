@@ -1,0 +1,40 @@
+# Pattern A: allow-list cluster-controller ServiceAccounts explicitly.
+#
+# Human users go through normal policy (admin=allow, alice=readonly,
+# mallory=deny). Each ecosystem-controller SA we care about is named
+# explicitly and granted get|list|watch on repos.aggexp.io.
+#
+# Operational property: adding a new controller (Crossplane, Kyverno,
+# Capsule, a home-grown operator) requires editing this ConfigMap. The
+# set of names is small but open-ended.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: policy-service-rules
+  namespace: aggexp-system
+data:
+  rules.json: |
+    {
+      "rules": [
+        { "user": "kubernetes-admin",        "verb": "*",              "allow": true,  "reason": "admin" },
+        { "group": "kubeadm:cluster-admins", "verb": "*",              "allow": true,  "reason": "cluster admins" },
+
+        { "user": "system:serviceaccount:argocd:argocd-application-controller",
+                                             "verb": "get|list|watch", "allow": true,  "reason": "A: argocd app controller" },
+        { "user": "system:serviceaccount:argocd:argocd-applicationset-controller",
+                                             "verb": "get|list|watch", "allow": true,  "reason": "A: argocd appset controller" },
+        { "user": "system:serviceaccount:argocd:argocd-server",
+                                             "verb": "get|list|watch", "allow": true,  "reason": "A: argocd server" },
+        { "user": "system:serviceaccount:flux-system:source-controller",
+                                             "verb": "get|list|watch", "allow": true,  "reason": "A: flux source" },
+        { "user": "system:serviceaccount:flux-system:kustomize-controller",
+                                             "verb": "get|list|watch", "allow": true,  "reason": "A: flux kustomize" },
+        { "user": "system:kube-controller-manager",
+                                             "verb": "get|list|watch", "allow": true,  "reason": "A: kube-controller-manager" },
+
+        { "user": "alice",                   "verb": "get|list|watch", "allow": true,  "reason": "alice: readonly" },
+        { "user": "alice",                                              "allow": false, "reason": "alice: writes denied" },
+        { "user": "mallory",                                            "allow": false, "reason": "mallory: deny" }
+      ],
+      "default": { "allow": false, "reason": "no matching rule" }
+    }

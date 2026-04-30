@@ -1,0 +1,24 @@
+# Toy ArgoCD Application. Not related to the aggexp.io API group — the
+# point is to confirm that ArgoCD's normal sync flow for unrelated
+# Applications stays healthy whether or not the cluster cache can LIST
+# repos.aggexp.io.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: toy-guestbook
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/argoproj/argocd-example-apps.git
+    targetRevision: HEAD
+    path: guestbook
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
