@@ -54,6 +54,17 @@ must be typed (for Scheme.ObjectKinds), but its content can remain
 an untyped bag (for resource-agnostic CRUD). Status: complete. See
 `FINDINGS/0017-krm-protocol-refinement.md`.
 
+**`0018-krm-component-parity-s3`** — 0009's ACK-inverted S3 Bucket
+re-implemented as a gRPC backend behind the 0013 KRM component
+server. User-facing parity with 0009; the inversion of the
+apiserver vs. backend boundary does not change the wire behavior.
+SSA fails loudly (0013-style, at typed-converter construction)
+rather than silently (0009-style, managedFields vanish on next
+GET). Backend-side S3 translation is ~674 lines vs 0009's ~664;
+the ~500 lines of scheme/codegen/apiserver wiring from 0009 are
+replaced by the (amortized) component server. Status: complete.
+See `FINDINGS/0018-krm-component-parity-s3.md`.
+
 - **`0005-argocd-compat`** — install ArgoCD into a dedicated kind
   cluster, point at an Application referencing plain Kubernetes
   manifests, observe what ArgoCD's cluster cache does with our
