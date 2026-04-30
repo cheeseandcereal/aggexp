@@ -114,6 +114,14 @@ SSA working out-of-the-box. Status: complete. See
   that `0009` lost work again when the backing store is a CRD — at
   the cost of one extra kube-apiserver hop per request. Status:
   complete. See `FINDINGS/0010-etcd-crd-facade-with-ssa.md`.
+- **`0011-async-backend-sim`** — async-provisioning mock (30s
+  provision / 10s deprovision) fronted by a stateless AA; probes
+  the sync/async boundary 0009 flagged. Softens the "async breaks
+  the inversion" claim — the model works if Create returns
+  immediately with phase=Provisioning. Surfaced the
+  `initial-events-end` bookmark gap in the substrate
+  (`kubectl wait --for=jsonpath` fails). Status: complete. See
+  `FINDINGS/0011-async-backend-sim.md`.
 - `external-db-driver` — postgres-backed driver; real resourceVersion
   derived from a sequence.
 - `repo-uid-stability` — use a deterministic UID scheme derived
@@ -129,20 +137,18 @@ SSA working out-of-the-box. Status: complete. See
 - `etag-aware-polling` — add ETag / If-None-Match to the GitHub
   client; measure how much rate-limit headroom it buys.
   Derived from `0004`.
-- `ssa-managedfields-in-backend` — encode SSA managedFields into
-  the backend (S3 tags, etc.) and see whether ownership semantics
-  can be recovered under the inverted model. Derived from `0009`.
-  **Absorbed for the CRD-as-backend case by `0010`**, which shows
-  that a CRD facade recovers SSA semantics with a small apiVersion /
-  field-path rewrite. Still open for non-CRD backends where the
-  encoding has to live in backend-native metadata (S3 tags, GitHub
-  description fields).
-- `async-backend-sim` — simulate an async-provisioning backend
-  (30s fake delay) and see how the AA must model it. Tests the
-  sync/async boundary explicitly. Derived from `0009`.
+- ~~`ssa-managedfields-in-backend`~~ — absorbed for the CRD-as-
+  backend case by `0010`, which shows SSA semantics recover with
+  a small apiVersion / field-path rewrite. Still open for
+  non-CRD backends where the encoding has to live in backend-
+  native metadata (S3 tags, GitHub description fields).
+- ~~`async-backend-sim`~~ — answered by `0011`.
 - `cross-resource-references` — two resource types where one
   references the other; probes declarative-apply ordering under
-  the inverted model. Derived from `0009`.
+  the inverted model. Derived from `0009`. Sharper after 0011:
+  the interesting case is async resources where "the thing I
+  depend on is provisioning" is observable as a phase, not just a
+  404.
 - `aws-cloudtrail-watch` — replace the S3 poll loop with
   CloudTrail/EventBridge subscriptions for a real-AWS
   deployment. Derived from `0009`.
@@ -150,6 +156,7 @@ SSA working out-of-the-box. Status: complete. See
 **Retired candidates**:
 - ~~`fs-driver`~~ — answered by `0007`.
 - ~~`in-memory-hello`~~ — subsumed by `0002`.
+- ~~`async-backend-sim`~~ — answered by `0011`.
 
 ## Per-request authorization
 
@@ -199,6 +206,12 @@ SSA working out-of-the-box. Status: complete. See
 - `unstable-schema-backend` — a backend whose objects of the
   same "kind" have inconsistent fields; probe how the AA's
   schema + OpenAPI behave.
+- `status-conditions-in-aa` — model status using the Kubernetes
+  Conditions convention (type/status/reason/message) and see
+  whether `kubectl wait --for=condition=Ready` behaves better
+  than the `--for=jsonpath` path 0011 found broken. Probes the
+  intersection of resource modeling and tooling idioms. Derived
+  from `0011`.
 
 **Retired candidates**:
 - ~~`extract-runtime`~~ — done; see `runtime/` and `0007`.
@@ -224,6 +237,11 @@ SSA working out-of-the-box. Status: complete. See
 - `hours-long-informer` — `0008` was 15-minutes-ish. What happens
   over many hours, through multiple backend poll cycles, several
   AA restarts, and genuine resource churn? Derived from `0008`.
+- `watch-initial-events-end-bookmark` — emit the
+  `k8s.io/initial-events-end` BOOKMARK annotation at the end of
+  the initial-events stream from `runtime/storage`, and confirm
+  `kubectl wait --for=jsonpath` (and WatchList-aware informers)
+  stop timing out. Substrate-level work; derived from `0011`.
 
 **Retired candidates**:
 - ~~`watch-broadcaster-substrate`~~ — done; lives in
