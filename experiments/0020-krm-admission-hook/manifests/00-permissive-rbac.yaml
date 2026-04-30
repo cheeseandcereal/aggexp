@@ -1,0 +1,25 @@
+# Permissive RBAC for Notes so `kubectl get notes` works for any
+# authenticated user. Our AA's authorizer is off in this skeleton;
+# in a production deployment the custom authorizer (runtime/authz)
+# would refine this.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-notes-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["notes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-notes-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-notes-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

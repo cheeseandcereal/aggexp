@@ -1,0 +1,12 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: test-hello
+  namespace: default
+spec:
+  title: "A proper title"
+  body: |
+    A Note that should pass validation:
+      - name starts with test- (required on CREATE by admission)
+      - title is 3-64 characters
+      - name is a valid DNS-1123 label
