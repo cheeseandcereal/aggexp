@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: note-backend
+  namespace: aggexp-system
+  labels:
+    app: note-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: note-backend
+  template:
+    metadata:
+      labels:
+        app: note-backend
+    spec:
+      containers:
+        - name: note-backend
+          # 0019's python backend image; the component server (0017's
+          # image, unchanged) connects at note-backend.aggexp-system:9090
+          # and doesn't know the backend is python.
+          image: ${NOTE_BACKEND_PY_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 9090
+          resources:
+            requests:
+              cpu: 30m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: note-backend
+  namespace: aggexp-system
+spec:
+  selector:
+    app: note-backend
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+      protocol: TCP

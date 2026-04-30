@@ -1,0 +1,11 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: hello
+  namespace: default
+spec:
+  title: Hello from experiment 0017
+  body: |
+    A Note served by a thin Go backend, fronted by a generic
+    component server that threads real OpenAPI from the backend
+    into the library's explain and SSA paths.

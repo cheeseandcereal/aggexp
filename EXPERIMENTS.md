@@ -251,6 +251,18 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   dimension). Status: complete.
 - **`0009-ack-aggregated-s3`** — (secondary here; primary is
   storage independence). Fourth real backend. Status: complete.
+- **`0019-krm-polyglot-backend`** — 0017's backend-note
+  re-implemented in Python, fronted by 0017's unchanged
+  component-server image. CRUD + watch + rich explain + SSA
+  (incl. conflict detection and force-conflicts) all pass
+  end-to-end; the component server cannot distinguish the
+  backend's language. Python backend is ~30% shorter than the
+  Go reference on the semantic line count; `kubectl get`
+  latency is indistinguishable (71.6 vs 70.4 ms mean over 10
+  serial calls). The JSON-bytes payload decision from 0013's
+  proto turns out to be load-bearing for language portability.
+  Image-size is the real cost: 159 MB python vs 12.3 MB Go.
+  Status: complete. See `FINDINGS/0019-krm-polyglot-backend.md`.
 - **`0021-runtime-component-parity`** — first consumer of the
   extracted `runtime/component/` substrate. A ~40-line `note-aa`
   + a verbatim 0017-style note-backend, built on top of the
