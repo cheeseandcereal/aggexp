@@ -188,13 +188,14 @@ Status: complete. See `FINDINGS/0013-krm-component-skeleton.md`.
 - `authz-cache-latency` — add a TTL cache to the custom authorizer,
   measure round-trip latency under load, compare to library-
   provided SAR caching. Derived from `0003`.
-- `aa-authz-aware-controllers` — an AA whose policy-service
-  default-denies will brick any ecosystem controller that
-  auto-discovers-and-watches every API group it has RBAC for (0005
-  observed this with ArgoCD's gitops-engine cluster cache). What
-  pattern best accommodates them? Allow-list by SA; blanket
-  `get/list/watch` for any `system:serviceaccount:*`; upstream-RBAC
-  strict + AA-refines. Derived from `0005`.
+- **`0016-aa-authz-aware-controllers`** — probed three concrete
+  patterns (A allow-list by SA, B blanket-SA, C upstream-RBAC strict
+  + AA refines) against ArgoCD's gitops-engine cluster cache in a
+  dedicated kind cluster. All three unblock ArgoCD; they differ in
+  blast radius, per-controller maintenance, `kubectl auth can-i`
+  accuracy, and where the 403 originates (AA vs. kube-apiserver).
+  Recommended: Pattern C. Status: complete. See
+  `FINDINGS/0016-aa-authz-aware-controllers.md`.
 
 ## Resource modeling freedom
 
