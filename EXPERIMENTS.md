@@ -251,6 +251,15 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   dimension). Status: complete.
 - **`0009-ack-aggregated-s3`** — (secondary here; primary is
   storage independence). Fourth real backend. Status: complete.
+- **`0021-runtime-component-parity`** — first consumer of the
+  extracted `runtime/component/` substrate. A ~40-line `note-aa`
+  + a verbatim 0017-style note-backend, built on top of the
+  promoted `runtime/component/{proto,scheme,openapi,grpcbackend}`.
+  Demonstrates that after the promotion, a new KRM-style consumer
+  writes ~0.27x the handwritten Go of 0017 and carries zero
+  generated code in its own tree. Confirms the substrate extraction
+  held under a fresh consumer with no per-consumer patches.
+  Status: complete. See `FINDINGS/0021-runtime-component-parity.md`.
 - `http-driver` — generic HTTP endpoint as a Kubernetes resource.
   The "anything as a resource" stress test.
 - `grpc-as-resource` — expose a gRPC service through aggregation.
