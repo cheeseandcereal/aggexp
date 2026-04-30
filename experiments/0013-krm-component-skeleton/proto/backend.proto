@@ -1,0 +1,190 @@
+// Package backend is the RPC between the generic Kubernetes-aware
+// "component server" and a resource-specific "backend" that speaks
+// plain CRUD. Objects travel as JSON bytes so we don't need a
+// protobuf message per user resource type.
+//
+// Regenerate with (from the experiment root):
+//   protoc --go_out=. --go_opt=paths=source_relative \
+//     --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+//     proto/backend.proto
+// and then move the generated .pb.go / _grpc.pb.go files into gen/.
+//
+// See the experiment README for the overall design.
+
+syntax = "proto3";
+
+package aggexp.krm.v1;
+
+option go_package = "github.com/cheeseandcereal/aggexp/experiments/0013-krm-component-skeleton/gen/aggexp/krm/v1;krmv1";
+
+service Backend {
+  // GetSchema is called once at component-server startup. The backend
+  // describes the resource it serves. The component server then
+  // registers that resource with its generic apiserver dynamically.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+
+  // Get returns a single object by namespace+name. On not-found the
+  // backend returns status.code = NOT_FOUND; the component server
+  // translates that into a Kubernetes 404.
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // List returns all objects in a namespace (or cluster-wide if the
+  // resource is cluster-scoped). LabelSelector is a string; the
+  // component also filters defensively.
+  rpc List(ListRequest) returns (ListResponse);
+
+  // Create stores a new object. The backend assigns UID/CreationTime;
+  // the component server assigns ResourceVersion on the watch fanout.
+  rpc Create(CreateRequest) returns (CreateResponse);
+
+  // Update replaces an object. ForceAllowCreate indicates upsert
+  // semantics (PATCH with apply).
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+
+  // Delete removes an object.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // Watch opens a long-running server stream. The backend pushes
+  // WatchEvent messages until the client closes the stream or the
+  // server errors.
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+}
+
+// UserInfo carries the forwarded aggregation-layer identity. Mirrors
+// k8s.io/apiserver/pkg/authentication/user.Info without the package
+// dependency.
+message UserInfo {
+  string name = 1;
+  string uid = 2;
+  repeated string groups = 3;
+  map<string, StringList> extra = 4;
+}
+
+message StringList {
+  repeated string values = 1;
+}
+
+// TableColumn is a minimal mirror of metav1.TableColumnDefinition.
+// We only need name + type + description to render kubectl tables.
+message TableColumn {
+  string name = 1;
+  string type = 2;
+  string format = 3;
+  string description = 4;
+  int32 priority = 5;
+}
+
+message GetSchemaRequest {}
+
+message GetSchemaResponse {
+  // GVR identifies the resource.
+  string group = 1;
+  string version = 2;
+  string resource = 3;  // plural, lowercase, used in URLs
+  string kind = 4;      // CamelCase singular
+  string singular = 5;  // lowercase singular, used by kubectl
+
+  // Namespaced is true for namespace-scoped resources.
+  bool namespaced = 6;
+
+  // Writable indicates whether the backend accepts Create/Update/Delete.
+  // If false, the component server registers a read-only resource.
+  bool writable = 7;
+
+  // OpenAPIV3 is a JSON-encoded OpenAPI v3 schema object for the
+  // resource's top-level type. It is passed to kubectl explain. May
+  // be empty; kubectl explain will degrade accordingly.
+  bytes openapi_v3 = 8;
+
+  // Columns is the list of kubectl-get table columns.
+  repeated TableColumn columns = 9;
+
+  // RowFields are jsonpath-style field references the component
+  // server will extract from each object for each table row. Length
+  // should match Columns. A missing / unresolvable field renders as
+  // the empty string.
+  repeated string row_fields = 10;
+}
+
+message GetRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message GetResponse {
+  bytes object_json = 1;
+}
+
+message ListRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+}
+
+message ListResponse {
+  // Items is a JSON array of objects. The component server wraps
+  // them in a <Kind>List envelope itself.
+  repeated bytes items_json = 1;
+  // ResourceVersion, if present, is the backend's opaque idea of
+  // "what version this list is at". The component server doesn't
+  // currently use it (it tracks its own RV) but we carry it so the
+  // protocol can evolve.
+  string resource_version = 2;
+}
+
+message CreateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  bytes object_json = 3;
+}
+
+message CreateResponse {
+  bytes object_json = 1;
+}
+
+message UpdateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  bool force_allow_create = 5;
+}
+
+message UpdateResponse {
+  bytes object_json = 1;
+  bool created = 2;
+}
+
+message DeleteRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message DeleteResponse {
+  bytes object_json = 1;
+  bool deleted = 2;
+}
+
+message WatchRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+  // ResourceVersion starts the watch at a point in time. Empty
+  // string or "0" means "from now with an initial list snapshot".
+  string resource_version = 4;
+}
+
+enum EventType {
+  EVENT_UNSPECIFIED = 0;
+  EVENT_ADDED = 1;
+  EVENT_MODIFIED = 2;
+  EVENT_DELETED = 3;
+  EVENT_BOOKMARK = 4;
+}
+
+message WatchEvent {
+  EventType type = 1;
+  bytes object_json = 2;
+}

@@ -66,7 +66,7 @@ kubectl -n aggexp-system rollout status deploy/aggexp
 kubectl -n aggexp-system rollout status deploy/note-backend
 
 kubectl get --raw /apis/notes.aggexp.io/v1 | jq .
-kubectl apply -f experiments/0013-krm-component-skeleton/manifests/sample-note.yaml
+kubectl apply -f experiments/0013-krm-component-skeleton/sample-note.yaml
 kubectl get notes
 kubectl get notes hello -o yaml
 kubectl get notes -w &

@@ -32,6 +32,14 @@ layer and kubectl actually demand. Status: complete. See
 SSA working out-of-the-box. Status: complete. See
 `FINDINGS/0002-hello-aggregated.md`.
 
+**`0013-krm-component-skeleton`** — first experiment in the KRM
+middle-layer arc. A deployable generic component server registers a
+resource type dynamically at startup by asking a thin gRPC backend
+for its schema. Proves wire-protocol fidelity holds when CRUD is
+delegated to an unstructured-JSON backend, while SSA and rich
+`kubectl explain` degrade because they assume typed Go models.
+Status: complete. See `FINDINGS/0013-krm-component-skeleton.md`.
+
 - **`0005-argocd-compat`** — install ArgoCD into a dedicated kind
   cluster, point at an Application referencing plain Kubernetes
   manifests, observe what ArgoCD's cluster cache does with our

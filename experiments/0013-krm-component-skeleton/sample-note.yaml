@@ -1,0 +1,12 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: hello
+  namespace: default
+spec:
+  title: Hello from experiment 0013
+  body: |
+    A Note served by a thin Go backend, fronted by a generic
+    component server. The component server never imported any
+    Note-specific Go type; it learned the shape at startup over
+    gRPC.
