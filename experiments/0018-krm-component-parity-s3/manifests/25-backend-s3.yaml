@@ -1,0 +1,63 @@
+# backend-s3: the gRPC backend the KRM component server calls. It
+# translates backend.proto RPCs into aws-sdk-go-v2 S3 calls.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-s3
+  namespace: aggexp-system
+  labels:
+    app: backend-s3
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend-s3
+  template:
+    metadata:
+      labels:
+        app: backend-s3
+    spec:
+      containers:
+        - name: backend-s3
+          image: ${BACKEND_S3_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --addr=0.0.0.0:9090
+            - --aws-region=us-east-1
+            - --aws-endpoint-url=http://s3-mock.aggexp-system.svc
+            - --aws-s3-path-style=true
+            - --poll-interval=15s
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-creds
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-creds
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_REGION
+              value: us-east-1
+          ports:
+            - name: grpc
+              containerPort: 9090
+          resources:
+            requests:
+              cpu: 30m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-s3
+  namespace: aggexp-system
+spec:
+  selector:
+    app: backend-s3
+  ports:
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
