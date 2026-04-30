@@ -1,0 +1,8 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: test-hello-shorttitle
+  namespace: default
+spec:
+  title: "x"
+  body: "A Note that should be rejected: spec.title is too short (min 3)."

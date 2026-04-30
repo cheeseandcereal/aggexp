@@ -1,0 +1,12 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: foo-hello
+  namespace: default
+spec:
+  title: "A proper title"
+  body: |
+    A Note that should be rejected on CREATE: its name does not
+    start with `test-` or `prod-`. This is exactly the policy
+    shape the 0003 authorizer could not enforce (CREATE carries
+    no name in Attributes); here it is enforced in admission.

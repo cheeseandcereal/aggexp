@@ -231,7 +231,15 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   that enforces name-based creation policy (the `bob-*` rule we
   could not enforce in the authorizer because CREATE carries no
   `Attributes.GetName()`). Probes the authz-vs-admission boundary
-  directly. Derived from `0003`.
+  directly. Derived from `0003`. **Resolved by
+  `0020-krm-admission-hook`** in the component-server architecture.
+- **`0020-krm-admission-hook`** — adds validating + mutating
+  admission RPCs to the 0017 component-server protocol. Closes
+  the 0003 authz-vs-admission boundary for the component-server
+  architecture: name-based CREATE policy and spec-field-shape
+  policy are enforceable via gRPC `Validate`/`Mutate` RPCs, with
+  the reason string reaching kubectl verbatim as HTTP 422 Invalid.
+  Status: complete. See `FINDINGS/0020-krm-admission-hook.md`.
 - `authz-cache-latency` — add a TTL cache to the custom authorizer,
   measure round-trip latency under load, compare to library-
   provided SAR caching. Derived from `0003`.
@@ -279,7 +287,8 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   resources (kcp-style virtual workspace).
 - `name-aware-admission` — validating admission hook in the AA
   enforcing name-based policy. Addresses the authz-vs-admission
-  boundary flagged by `0003`.
+  boundary flagged by `0003`. **Resolved by
+  `0020-krm-admission-hook`** for the component-server architecture.
 - `unstable-schema-backend` — a backend whose objects of the
   same "kind" have inconsistent fields; probe how the AA's
   schema + OpenAPI behave.
