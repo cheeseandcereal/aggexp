@@ -18,70 +18,33 @@ provide the evidence.
 
 ## Current state
 
-Informed by nineteen experiments:
+Informed by twenty-one experiments and two substrate promotions:
 
-- `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
-- `FINDINGS/0002-hello-aggregated` — library-backed stateless AA with
-  read/write/watch + SSA.
-- `FINDINGS/0003-custom-authorizer-external-policy` — per-request
-  identity-based authorization via an external HTTP policy service.
-- `FINDINGS/0004-github-driver-static-pat` — GitHub repos projected
-  as a read-only aggregated-API resource via a polling client.
-- `FINDINGS/0005-argocd-compat` — ArgoCD deployed against an AA that
-  exposes `repos.aggexp.io/v1`.
-- `FINDINGS/0006-identity-broker-github-app` — broker-mediated
-  identity-to-backend token exchange (mock broker + mock GitHub).
-- `FINDINGS/0007-runtime-fs-driver` — third backend consuming the
-  extracted `runtime/` substrate.
-- `FINDINGS/0008-long-lived-informer` — client-go SharedInformer
-  sustained against a synthetic-RV AA over four probe scenarios.
-- `FINDINGS/0009-ack-aggregated-s3` — ACK-pattern inversion; stateless
-  AA over AWS S3.
-- `FINDINGS/0010-etcd-crd-facade-with-ssa` — AA as a facade over a
-  CRD served by the host kube-apiserver; recovers SSA/finalizers/
-  ownerReferences at the cost of one extra hop.
-- `FINDINGS/0011-async-backend-sim` — async-provisioning mock;
-  softens 0009's "async breaks the inversion" claim; surfaces the
-  `initial-events-end` bookmark gap.
-- `FINDINGS/0012-controller-runtime-manager-compat` — manager layer
-  (caches + reconcile + leader election) against a writable-ish AA.
-- `FINDINGS/0013-krm-component-skeleton` — first experiment in the
-  KRM middle-layer arc: a generic component server + a thin gRPC
-  backend.
-- `FINDINGS/0014-flux-compat` — sibling to 0005 with Flux; Flux's
-  default controller set does NOT do discovery-driven LIST, so the
-  0005 "one LIST failure bricks cluster cache" does not apply.
-- `FINDINGS/0015-argocd-application-targets-aa` — ArgoCD Application
-  targets a writable aggexp resource (0010's Widget). Sync, drift,
-  prune, self-heal, cascade-delete all pass. Surfaces a new facade-
-  level obligation: annotation echo causes double-tracking.
-- `FINDINGS/0016-aa-authz-aware-controllers` — three patterns for
-  coexisting AA authz with cluster controllers tested head-to-head;
-  recommendation = Pattern C (strict upstream RBAC + AA refines).
-- `FINDINGS/0017-krm-protocol-refinement` — closes 0013's two gaps.
-  `kubectl explain` works once the backend's OpenAPI is threaded
-  into the defs map; SSA works end-to-end once a typed Go wrapper
-  is registered under the GVK (library's empty-object-GVK path
-  requires a typed Scheme entry, not just typed OpenAPI).
-- `FINDINGS/0018-krm-component-parity-s3` — 0009 re-implemented as
-  a gRPC backend behind the 0013 component. User-facing parity;
-  SSA fails loudly (typed-converter) rather than silently
-  (managedFields vanish). Backend-side S3 translation is
-  essentially the same size as the linked Go version.
-- `FINDINGS/0019-krm-polyglot-backend` — 0017's backend-note
-  re-implemented in Python behind an unchanged component-server
-  image. Full CRUD + watch + rich explain + SSA parity; the
-  component can't distinguish the backend's language. Python is
-  ~30% shorter on semantic LOC; kubectl get latency is
-  indistinguishable from Go. The JSON-bytes payload decision
-  from 0013's proto is load-bearing for this portability.
+- `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0018-krm-component-parity-s3`
+  — see earlier listing.
+- `FINDINGS/0019-krm-polyglot-backend` — 0017's note-backend re-
+  implemented in python behind the unchanged 0017 component-server
+  image. End-to-end parity including SSA conflict detection;
+  python ~30% shorter on semantic LOC; image size 13× larger.
+- `FINDINGS/0020-krm-admission-hook` — extends the KRM protocol
+  with Validate + Mutate RPCs. Closes the authz-vs-admission
+  boundary flagged by 0003 for the component-server architecture.
+- `FINDINGS/0021-runtime-component-parity` — first consumer of
+  the promoted `runtime/component/` substrate. ~40-line
+  `note-aa` + 0017-style backend; 0.27× the handwritten Go of
+  0017 with zero generated code in the consumer tree.
 
-MVP-lab and MVP-example (GitHub repos end-to-end) are both complete;
-see `FINDINGS/example-e1-github-repos.md`.
+MVP-lab and MVP-example complete.
 
-`runtime/` substrate exists and is consumed by experiments 0007,
-0009, 0010, 0011, plus the 0013/0017/0018 component-server
-adapters. See `ARCHITECTURE.md`.
+Substrate `runtime/` now has two promotions:
+1. `runtime/{server, group, authz, storage}` — the library pattern
+   (consumers: 0002, 0004, 0007, 0009, 0010, 0011).
+2. `runtime/component/{proto, scheme, openapi, grpcbackend}` — the
+   component-server pattern (consumers: 0013, 0017, 0018, 0019,
+   0020, 0021; the last is the first post-promotion library-mode
+   consumer).
+
+See `ARCHITECTURE.md`.
 
 Remaining claims below without a `FINDINGS/*` reference are
 unvalidated.
@@ -165,6 +128,31 @@ backend pattern has user-facing parity with a library-linked AA;
 backend-side translation is the same size; the scheme/codegen/
 apiserver wiring is amortized into the (reusable) component
 server.
+
+**The component-server shape is language-agnostic on the backend
+side** [`0019`]. 0017's component-server binary was reused
+unchanged against a **python** note-backend. CRUD + watch + rich
+explain + SSA (including conflict detection and force-conflicts)
+all pass end-to-end; the component server cannot tell the
+backend's language apart. Python semantic LOC is ~30% shorter
+than Go; latency is indistinguishable (~71 ms mean `kubectl get`
+at lab scale, dominated by the aggregation-layer hop).
+Image-size is the real cost (python 159 MB vs distroless-Go 12.3 MB
+~13×), not runtime performance. The JSON-bytes payload decision
+in the proto (from 0013) is load-bearing for language
+portability: the backend never decodes into a typed language
+object, so no per-type codegen is required on its side.
+
+**The component-server substrate is now a promoted package**
+[`0021`]. `runtime/component/{proto, scheme, openapi, grpcbackend}`
+encapsulates the 0017 approach (typed wrapper for SSA, OpenAPI
+threading for explain). First post-promotion consumer is a
+~40-line `cmd/note-aa/main.go` plus the same note-backend
+0017/0019 used, producing ~0.27× the handwritten Go of 0017. The
+substrate extraction held under this first library-mode consumer
+with no per-consumer patches. A new `--use-typed-wrapper=true`
+default flipped from 0017's opt-in, because SSA working is now
+the expected baseline.
 
 **The stateless-AA + CRD-facade pattern supports real gitops
 controllers writing to our resources** [`0015`]. ArgoCD
@@ -432,7 +420,17 @@ Four concrete sub-findings from `0003`:
 4. **CREATE has no `name` in authorizer Attributes.** Name-based
    creation policies cannot be enforced in the authorizer
    interface; they belong in **admission** (validating admission
-   webhook / CEL).
+   webhook / CEL). **Closed for the component-server architecture
+   by `0020`**: adding `Validate` + `Mutate` RPCs to the Backend
+   proto and running them in the component server's request path
+   (mutate-then-validate ordering, matching standard Kubernetes
+   admission) produces errors byte-wire-identical to
+   ValidatingAdmissionWebhook; the name-based CREATE case from
+   `0003` enforces cleanly as an admission rule. Differences from
+   ValidatingAdmissionWebhook: gRPC instead of HTTPS; position is
+   after kube-apiserver proxied to us (a host-cluster VAW still
+   runs as an outer layer); opt-in via schema flags, not a
+   cluster-level config object; fails closed on transport error.
 
 **The operational hazard** [`0005`]: an AA whose default-deny
 policy applies to every unknown identity will **brick any
@@ -626,37 +624,42 @@ Still unmeasured:
 
 ## Process observations
 
-Seven observations after nineteen experiments and one substrate
-promotion:
+Eight observations after twenty-one experiments and two substrate
+promotions:
 
 1. **Findings proportional to signal** holds. Dense experiments
    (0001, 0002, 0003, 0006, 0008, 0009, 0010, 0011, 0013, 0015,
-   0016, 0017, 0018) produced long FINDINGS; lean ones (0005,
-   0007, 0012, 0014) produced tighter ones. Agents have not been
-   padding.
+   0016, 0017, 0018, 0019, 0020) produced long FINDINGS; lean
+   ones (0005, 0007, 0012, 0014, 0021) produced tighter ones.
+   Agents have not been padding.
 2. **Parallel agents on the same kind cluster clobbered each
    other's state** during the 0005/0008 arcs. Each agent created
    its own `aggexp-<slug>` cluster after the first collision.
    Worth noting in AGENTS.md next rewrite: `kubectl config
    use-context` is process-global; parallel agents need isolated
    clusters.
-3. **Substrate extraction was deliberate and worked**. The
-   two-driver precondition (0002 + 0004) produced a natural
-   `Backend` interface that survived its second consumer (0007),
-   third (0009), fourth (0010 CRD facade), fifth (0011 async mock)
-   and the 0013 component-server's alternative adapter with only
-   minor seam issues (OpenAPI still copy-pasted into experiments;
-   `WritableBackend.Update` pre-fetch-then-mutate did not fit the
-   S3 delete-then-create case but did fit every other case).
-   Promotion discipline — tests, docs, thought-through interface —
-   was honored.
-4. **The six fundamentals frame has held** across thirteen
-   experiments. No new fundamental has emerged. Four adjacent
+3. **Substrate extraction was deliberate and worked — twice.** The
+   two-driver precondition (0002 + 0004) produced the first
+   `Backend` interface promotion (`runtime/{server,group,authz,
+   storage}`) which survived six experiment-level consumers
+   (0007, 0009, 0010, 0011, 0021) with only minor seam issues.
+   The three-consumer KRM precondition (0013 + 0017 + 0018)
+   produced the second promotion (`runtime/component/{proto,
+   scheme, openapi, grpcbackend}`), which survived its first
+   post-promotion consumer (0021) with zero per-consumer
+   patches. Promotion discipline — tests, docs, thought-through
+   interface, wait for two or three consumers — was honored in
+   both cases.
+4. **The six fundamentals frame has held** across twenty-one
+   experiments. No new fundamental has emerged. Five adjacent
    concerns have been named and fit cleanly under existing
    fundamentals without demanding a rewrite of the list:
-   authz-vs-admission [`0003`], substrate-promotion triggers,
-   sync-vs-async backend operations (nuanced by `0011`), and
-   typed-vs-unstructured resource registration [`0013`].
+   authz-vs-admission [`0003`] (closed for the component
+   architecture by `0020`), substrate-promotion triggers,
+   sync-vs-async backend operations (nuanced by `0011`),
+   typed-vs-unstructured resource registration (resolved by
+   `0017`'s typed wrapper), and language-agnostic backends
+   (resolved by `0019`).
 5. **The inversion thought experiments (0006 broker, 0009
    ACK-AA, 0013 KRM component) were disproportionately
    productive.** They exposed specific library-layer features
@@ -682,6 +685,16 @@ promotion:
    agent's cluster. Mitigation in the moment: each agent sets a
    per-experiment `KUBECONFIG` env var. Worth promoting to an
    AGENTS.md rule for the next parallel-dispatch session.
+8. **Three waves of parallel dispatch (4+5+3 experiments) over a
+   single arc produced 12 new experiments + 2 substrate
+   promotions.** SYNTHESIS was rewritten at each wave boundary;
+   EXPERIMENTS.md merge conflicts were the norm but trivially
+   resolved. The wave structure let each subsequent wave's
+   agents read the prior wave's findings before dispatching
+   their own tasks — this shows up concretely in 0017's use of
+   0013's findings, 0018's use of 0013+0017, 0019's use of
+   0017, and 0021's use of 0013+0017+0018. Dispatching all 12
+   at once would have prevented this feedback loop.
 
 The ethos itself needs no changes yet. If a pattern emerges of
 experiments going longer than they need to, or of SYNTHESIS
