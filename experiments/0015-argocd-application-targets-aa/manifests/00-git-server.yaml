@@ -1,14 +1,17 @@
-# In-cluster Git server.
+# In-cluster Git server (smart-HTTP).
 #
-# Runs a single pod that serves a bare Git repository over the git
-# protocol (port 9418) via `git daemon`. An initContainer constructs
-# the repository at pod start from a ConfigMap of YAML files. ArgoCD's
-# repo-server clones from `git://git-server.git-server.svc:9418/aggexp.git`.
+# Runs a single pod with apache2 + git-http-backend serving a bare
+# repository over the smart HTTP protocol. ArgoCD's go-git client uses
+# `--depth=1` shallow clones by default; dumb HTTP (static files) does
+# not support that, so a smart server is required.
 #
-# The experiment drives revisions by rewriting the ConfigMap and
-# restarting the Deployment (which reruns the initContainer and
-# rebuilds the bare repo from scratch). This is a lab convenience,
-# not a production git server.
+# The container image is built from experiments/0015-.../git-server/.
+# At container start a seed.sh script rebuilds the bare repo from the
+# `/content` mount (ConfigMap) so revisions are driven by `rollout
+# restart deploy/git-server` after a ConfigMap rewrite.
+#
+# ArgoCD's repo-server clones
+# `http://git-server.git-server.svc:8080/aggexp.git`.
 
 apiVersion: v1
 kind: Namespace
@@ -76,9 +79,9 @@ spec:
   selector:
     app: git-server
   ports:
-    - name: git
-      port: 9418
-      targetPort: 9418
+    - name: http
+      port: 8080
+      targetPort: 8080
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -99,60 +102,24 @@ spec:
       labels:
         app: git-server
     spec:
-      # The runtime image is alpine/git, which provides git + busybox.
-      # The init container seeds a bare repository from the ConfigMap.
-      initContainers:
-        - name: seed-repo
-          image: alpine/git:v2.47.2
-          command:
-            - /bin/sh
-            - -ec
-            - |
-              set -x
-              cd /srv/git
-              rm -rf work aggexp.git
-              mkdir -p work
-              cp /content/*.yaml work/
-              cd work
-              git init -q -b main
-              git config user.email "git-server@aggexp.local"
-              git config user.name  "git-server"
-              git add .
-              git commit -q -m "aggexp Widget manifests from ConfigMap"
-              cd /srv/git
-              git clone --bare work aggexp.git
-              rm -rf work
-              touch aggexp.git/git-daemon-export-ok
-              ls -la aggexp.git
+      containers:
+        - name: gitsvr
+          image: aggexp-git-server:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
           volumeMounts:
             - name: repo
               mountPath: /srv/git
             - name: content
               mountPath: /content
               readOnly: true
-      containers:
-        - name: gitd
-          image: alpine/git:v2.47.2
-          command:
-            - git
-            - daemon
-            - --reuseaddr
-            - --base-path=/srv/git
-            - --export-all
-            - --verbose
-            - --enable=upload-pack
-            - --enable=upload-archive
-            - /srv/git
-          ports:
-            - containerPort: 9418
-              name: git
-          volumeMounts:
-            - name: repo
-              mountPath: /srv/git
           readinessProbe:
-            tcpSocket:
-              port: 9418
-            initialDelaySeconds: 2
+            httpGet:
+              path: /aggexp.git/info/refs?service=git-upload-pack
+              port: 8080
+            initialDelaySeconds: 3
             periodSeconds: 5
       volumes:
         - name: repo

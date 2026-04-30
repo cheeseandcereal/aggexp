@@ -106,9 +106,9 @@ kind delete cluster --name aggexp-argo-app
 
 ## Status
 
-in-progress
+complete
 
-<!-- Will be flipped to `complete` and the FINDINGS file written once scenarios run. -->
+<!-- See FINDINGS/0015-argocd-application-targets-aa.md for results. -->
 
 ## Decisions made
 
@@ -116,17 +116,18 @@ in-progress
   0010 is the interesting probe because its backing CRD persists
   `managedFields`; 0009 would re-observe the "SSA looks fine but
   managedFields vanish" already documented in its findings.
-- **In-cluster git server over HTTP/git daemon.** Avoids any
-  dependency on a public Git host and on pushing this repo's own
-  history to a public remote. `alpine/git:v2.47.2` provides the
-  daemon; an initContainer builds the bare repo from a ConfigMap.
+- **In-cluster git server using smart HTTP (apache +
+  git-http-backend CGI).** First tried `git-daemon` over git://
+  — `alpine/git` doesn't ship `git-daemon`. Second tried dumb
+  HTTP (nginx autoindex) — ArgoCD's shallow-clone requires
+  smart HTTP. Third try (debian-slim + apache2 + git-http-backend)
+  works. Built from `git-server/Dockerfile`.
 - **Git content driven by ConfigMap + `rollout restart`.** The
-  init-container approach means "rewriting the repo" is a ConfigMap
-  apply + pod restart. Not a real `git commit`, but ArgoCD only sees
-  the resulting HEAD commit hash change.
-- **Branch name: `main`.** The initContainer initializes with
-  `git init -b main`. ArgoCD's `targetRevision: HEAD` tracks
-  whatever the default branch resolves to.
+  entrypoint script rebuilds the bare repo from the `/content`
+  mount each container start. Rewriting the ConfigMap + a
+  rollout restart is how revisions are driven.
+- **Branch name: `main`.** `git init -b main` in the seed script.
+  ArgoCD's `targetRevision: HEAD` tracks it.
 - **ArgoCD `Application` in `argocd` namespace.** Standard. The
   Application also carries the `resources-finalizer.argocd.argoproj.io`
   finalizer so the sync state is GC'd properly on Application delete.
@@ -137,13 +138,16 @@ in-progress
 - **`automated.prune=true, selfHeal=true`.** Needed to exercise
   the prune scenario and the drift-reconcile scenario respectively.
 - **Argo SA RBAC on `widgetstorages.aggexpstorage.aggexp.io`**
-  added. 0005 showed Argo's cluster cache lists every discovered
-  resource; we grant read on the backing CRD so the cache doesn't
-  brick itself on a 403. `widgets.aggexp.io` is already allowed
-  for `system:authenticated` via 0010's ClusterRole.
+  added defensively. The default ArgoCD install grants its SA
+  `*` cluster-wide so this is redundant under stock argocd; a
+  hardened (scope-limited) argocd install would need it.
 - **Three widgets (alpha/bravo/charlie).** Enough to test
   partial-drift (one edited) and prune (one removed) while keeping
   a stable widget untouched across revisions as a control.
+- **Context-explicit kubectl.** All scripts prefix kubectl calls
+  with `--context kind-aggexp-argo-app` because parallel agents
+  changing the global context is a known hazard (see SYNTHESIS
+  Process observations #2).
 
 ## Prerequisites
 

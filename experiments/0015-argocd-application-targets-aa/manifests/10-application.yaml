@@ -20,7 +20,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git://git-server.git-server.svc:9418/aggexp.git
+    repoURL: http://git-server.git-server.svc:8080/aggexp.git
     targetRevision: HEAD
     path: .
     directory:

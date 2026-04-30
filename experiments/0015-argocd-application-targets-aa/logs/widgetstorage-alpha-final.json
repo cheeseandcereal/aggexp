@@ -1,0 +1,63 @@
+{
+  "apiVersion": "aggexpstorage.aggexp.io/v1",
+  "kind": "WidgetStorage",
+  "metadata": {
+    "annotations": {
+      "argocd.argoproj.io/tracking-id": "aggexp-widgets:aggexp.io/Widget:default/alpha"
+    },
+    "creationTimestamp": "2026-04-30T05:55:20Z",
+    "generation": 7,
+    "labels": {
+      "managed-by": "argocd-experiment-0015",
+      "mutated": "v2",
+      "role": "primary"
+    },
+    "managedFields": [
+      {
+        "apiVersion": "aggexpstorage.aggexp.io/v1",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:metadata": {
+            "f:annotations": {
+              "f:argocd.argoproj.io/tracking-id": {}
+            },
+            "f:labels": {
+              "f:managed-by": {},
+              "f:mutated": {},
+              "f:role": {}
+            }
+          },
+          "f:spec": {
+            "f:description": {},
+            "f:storedCounter": {},
+            "f:tags": {
+              "f:env": {},
+              "f:extra": {},
+              "f:revision": {},
+              "f:source": {}
+            }
+          }
+        },
+        "manager": "argocd-controller",
+        "operation": "Apply",
+        "time": "2026-04-30T06:00:10Z"
+      }
+    ],
+    "name": "alpha",
+    "resourceVersion": "3321",
+    "uid": "14a22977-7d15-418e-8aa1-67e68b55070d"
+  },
+  "spec": {
+    "description": "alpha widget edited in Git to revision v2",
+    "storedCounter": 42,
+    "tags": {
+      "env": "lab",
+      "extra": "added-in-v2",
+      "revision": "v2",
+      "source": "argocd"
+    }
+  },
+  "status": {
+    "observedCounter": 0
+  }
+}

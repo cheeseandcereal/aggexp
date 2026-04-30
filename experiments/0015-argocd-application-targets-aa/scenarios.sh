@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Drives the three edit/prune scenarios against the running experiment.
+# Drives the edit/prune scenarios against the running experiment.
 # Assumes run.sh has already completed successfully.
 
 CLUSTER="aggexp-argo-app"
 CTX="kind-${CLUSTER}"
-kubectl config use-context "${CTX}"
 
-# ---- v2 content: alpha mutated -------------------------------------
-# Rewrites the git-content ConfigMap with alpha bumped (counter=42,
-# extra label + tag) and restarts the git-server Deployment so its
-# initContainer rebuilds the bare repo.
+K() { kubectl --context "${CTX}" "$@"; }
+
 apply_content_v2() {
-  kubectl -n git-server create configmap git-content \
+  K -n git-server create configmap git-content \
     --from-literal=widget-alpha.yaml='apiVersion: aggexp.io/v1
 kind: Widget
 metadata:
@@ -61,14 +58,14 @@ spec:
     source: argocd
     revision: v1
 ' \
-    --dry-run=client -o yaml | kubectl apply -f -
-  kubectl -n git-server rollout restart deploy/git-server
-  kubectl -n git-server rollout status deploy/git-server --timeout=120s
+    --dry-run=client -o yaml | K apply -f -
+  K -n git-server rollout restart deploy/git-server
+  K -n git-server rollout status deploy/git-server --timeout=120s
 }
 
-# ---- v3 content: charlie removed -----------------------------------
 apply_content_v3() {
-  kubectl -n git-server create configmap git-content \
+  # charlie dropped from source
+  K -n git-server create configmap git-content \
     --from-literal=widget-alpha.yaml='apiVersion: aggexp.io/v1
 kind: Widget
 metadata:
@@ -101,25 +98,26 @@ spec:
     source: argocd
     revision: v1
 ' \
-    --dry-run=client -o yaml | kubectl apply -f -
-  kubectl -n git-server rollout restart deploy/git-server
-  kubectl -n git-server rollout status deploy/git-server --timeout=120s
+    --dry-run=client -o yaml | K apply -f -
+  K -n git-server rollout restart deploy/git-server
+  K -n git-server rollout status deploy/git-server --timeout=120s
 }
 
-wait_sync_rev() {
-  local want="$1" timeout="${2:-60}"
+wait_sync() {
+  local want="${1:-Synced}" timeout="${2:-120}"
   for _ in $(seq 1 "${timeout}"); do
-    SYNC=$(kubectl -n argocd get application aggexp-widgets -o jsonpath='{.status.sync.status}' 2>/dev/null || true)
-    REV=$(kubectl -n argocd get application aggexp-widgets -o jsonpath='{.status.sync.revision}' 2>/dev/null || true)
-    echo "  sync=${SYNC:-?} rev=${REV:0:10}..."
-    if [[ "${SYNC}" == "Synced" ]]; then return 0; fi
+    SYNC=$(K -n argocd get application aggexp-widgets -o jsonpath='{.status.sync.status}' 2>/dev/null || true)
+    REV=$(K -n argocd get application aggexp-widgets -o jsonpath='{.status.sync.revision}' 2>/dev/null || true)
+    HEALTH=$(K -n argocd get application aggexp-widgets -o jsonpath='{.status.health.status}' 2>/dev/null || true)
+    printf '  sync=%s health=%s rev=%s\n' "${SYNC:-?}" "${HEALTH:-?}" "${REV:0:10}..."
+    if [[ "${SYNC}" == "${want}" ]]; then return 0; fi
     sleep 1
   done
   return 1
 }
 
 force_refresh() {
-  kubectl -n argocd annotate application aggexp-widgets \
+  K -n argocd annotate application aggexp-widgets \
     argocd.argoproj.io/refresh=hard --overwrite
 }
 
@@ -127,7 +125,7 @@ case "${1:-}" in
   v2) apply_content_v2 ;;
   v3) apply_content_v3 ;;
   refresh) force_refresh ;;
-  wait) wait_sync_rev "${2:-Synced}" "${3:-60}" ;;
+  wait) wait_sync "${2:-Synced}" "${3:-120}" ;;
   *)
     echo "usage: $0 {v2|v3|refresh|wait [status] [timeout]}"
     exit 2

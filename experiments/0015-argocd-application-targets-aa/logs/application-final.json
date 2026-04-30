@@ -1,0 +1,181 @@
+{
+  "apiVersion": "argoproj.io/v1alpha1",
+  "kind": "Application",
+  "metadata": {
+    "annotations": {
+      "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"argoproj.io/v1alpha1\",\"kind\":\"Application\",\"metadata\":{\"annotations\":{},\"finalizers\":[\"resources-finalizer.argocd.argoproj.io\"],\"name\":\"aggexp-widgets\",\"namespace\":\"argocd\"},\"spec\":{\"destination\":{\"namespace\":\"default\",\"server\":\"https://kubernetes.default.svc\"},\"project\":\"default\",\"source\":{\"directory\":{\"recurse\":false},\"path\":\".\",\"repoURL\":\"http://git-server.git-server.svc:8080/aggexp.git\",\"targetRevision\":\"HEAD\"},\"syncPolicy\":{\"automated\":{\"prune\":true,\"selfHeal\":true},\"syncOptions\":[\"ServerSideApply=true\",\"CreateNamespace=false\"]}}}\n"
+    },
+    "creationTimestamp": "2026-04-30T05:39:55Z",
+    "finalizers": [
+      "resources-finalizer.argocd.argoproj.io"
+    ],
+    "generation": 48,
+    "name": "aggexp-widgets",
+    "namespace": "argocd",
+    "resourceVersion": "3324",
+    "uid": "21340a6c-7daf-44ef-b034-7bbce05567a6"
+  },
+  "spec": {
+    "destination": {
+      "namespace": "default",
+      "server": "https://kubernetes.default.svc"
+    },
+    "project": "default",
+    "source": {
+      "path": ".",
+      "repoURL": "http://git-server.git-server.svc:8080/aggexp.git",
+      "targetRevision": "HEAD"
+    },
+    "syncPolicy": {
+      "automated": {
+        "prune": true,
+        "selfHeal": true
+      },
+      "syncOptions": [
+        "ServerSideApply=true",
+        "CreateNamespace=false"
+      ]
+    }
+  },
+  "status": {
+    "controllerNamespace": "argocd",
+    "health": {
+      "lastTransitionTime": "2026-04-30T05:40:10Z",
+      "status": "Healthy"
+    },
+    "history": [
+      {
+        "deployStartedAt": "2026-04-30T05:55:20Z",
+        "deployedAt": "2026-04-30T05:55:20Z",
+        "id": 0,
+        "initiatedBy": {
+          "automated": true
+        },
+        "revision": "9bdf55ad5f837ae23332b6f45fa7d1cd86c97657",
+        "source": {
+          "path": ".",
+          "repoURL": "http://git-server.git-server.svc:8080/aggexp.git",
+          "targetRevision": "HEAD"
+        }
+      },
+      {
+        "deployStartedAt": "2026-04-30T05:58:31Z",
+        "deployedAt": "2026-04-30T05:58:31Z",
+        "id": 1,
+        "initiatedBy": {
+          "automated": true
+        },
+        "revision": "3fb0a7eb6e94ab56cca7ce5cd65668c397b96950",
+        "source": {
+          "path": ".",
+          "repoURL": "http://git-server.git-server.svc:8080/aggexp.git",
+          "targetRevision": "HEAD"
+        }
+      },
+      {
+        "deployStartedAt": "2026-04-30T05:59:40Z",
+        "deployedAt": "2026-04-30T05:59:41Z",
+        "id": 2,
+        "initiatedBy": {},
+        "revision": "7f1e5e0e64de6658a6787bf16164ec8c0392d75e",
+        "source": {
+          "path": ".",
+          "repoURL": "http://git-server.git-server.svc:8080/aggexp.git",
+          "targetRevision": "HEAD"
+        }
+      }
+    ],
+    "operationState": {
+      "finishedAt": "2026-04-30T06:00:11Z",
+      "message": "successfully synced (all tasks run)",
+      "operation": {
+        "initiatedBy": {
+          "automated": true
+        },
+        "retry": {
+          "limit": 5
+        },
+        "sync": {
+          "autoHealAttemptsCount": 2,
+          "prune": true,
+          "resources": [
+            {
+              "group": "aggexp.io",
+              "kind": "Widget",
+              "name": "alpha"
+            }
+          ],
+          "revision": "7f1e5e0e64de6658a6787bf16164ec8c0392d75e",
+          "source": {
+            "path": ".",
+            "repoURL": "http://git-server.git-server.svc:8080/aggexp.git",
+            "targetRevision": "HEAD"
+          },
+          "syncOptions": [
+            "ServerSideApply=true",
+            "CreateNamespace=false"
+          ]
+        }
+      },
+      "phase": "Succeeded",
+      "startedAt": "2026-04-30T06:00:10Z",
+      "syncResult": {
+        "resources": [
+          {
+            "group": "aggexp.io",
+            "hookPhase": "Running",
+            "kind": "Widget",
+            "message": "widget.aggexp.io/alpha serverside-applied",
+            "name": "alpha",
+            "namespace": "default",
+            "status": "Synced",
+            "syncPhase": "Sync",
+            "version": "v1"
+          }
+        ],
+        "revision": "7f1e5e0e64de6658a6787bf16164ec8c0392d75e",
+        "source": {
+          "path": ".",
+          "repoURL": "http://git-server.git-server.svc:8080/aggexp.git",
+          "targetRevision": "HEAD"
+        }
+      }
+    },
+    "reconciledAt": "2026-04-30T06:00:11Z",
+    "resourceHealthSource": "appTree",
+    "resources": [
+      {
+        "group": "aggexp.io",
+        "kind": "Widget",
+        "name": "alpha",
+        "status": "Synced",
+        "version": "v1"
+      },
+      {
+        "group": "aggexp.io",
+        "kind": "Widget",
+        "name": "bravo",
+        "status": "Synced",
+        "version": "v1"
+      }
+    ],
+    "sourceHydrator": {},
+    "sourceType": "Directory",
+    "summary": {},
+    "sync": {
+      "comparedTo": {
+        "destination": {
+          "namespace": "default",
+          "server": "https://kubernetes.default.svc"
+        },
+        "source": {
+          "path": ".",
+          "repoURL": "http://git-server.git-server.svc:8080/aggexp.git",
+          "targetRevision": "HEAD"
+        }
+      },
+      "revision": "7f1e5e0e64de6658a6787bf16164ec8c0392d75e",
+      "status": "Synced"
+    }
+  }
+}
