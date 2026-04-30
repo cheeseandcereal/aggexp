@@ -1,0 +1,266 @@
+// Package backend is the RPC between the generic Kubernetes-aware
+// "component server" and a resource-specific "backend" that speaks
+// plain CRUD. Objects travel as JSON bytes so we don't need a
+// protobuf message per user resource type.
+//
+// Compared to 0013's proto (from which this is forked), 0017:
+//
+//  - Adds an explicit Apply RPC distinct from Update, to let the
+//    backend handle Server-Side Apply differently if it chooses.
+//    (A backend may reuse its Update handler for Apply and ignore
+//    the field-manager name. A more sophisticated backend may
+//    record field ownership itself.)
+//  - Propagates the client-supplied field-manager name on Create,
+//    Update, and Apply. This gives the backend the information
+//    needed to honor managedFields — or ignore it.
+//  - Tightens GetSchemaResponse: the backend now reports its
+//    canonical Go-ish type name (consumed by the component server
+//    to key OpenAPI definitions) plus its kubectl short names and
+//    category list.
+//  - Carries `managedFields` in the object_json payload on every
+//    read/write path. (No explicit field; it is part of
+//    metadata.managedFields on the object.)
+//
+// Regenerate with (from the experiment root):
+//   protoc --go_out=. --go_opt=paths=source_relative \
+//     --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+//     proto/backend.proto
+// and then move the generated .pb.go / _grpc.pb.go files into gen/.
+//
+// See the experiment README for the overall design.
+
+syntax = "proto3";
+
+package aggexp.krm.v1;
+
+option go_package = "github.com/cheeseandcereal/aggexp/experiments/0017-krm-protocol-refinement/gen/aggexp/krm/v1;krmv1";
+
+service Backend {
+  // GetSchema is called once at component-server startup. The backend
+  // describes the resource it serves. The component server then
+  // registers that resource with its generic apiserver dynamically.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+
+  // Get returns a single object by namespace+name. On not-found the
+  // backend returns status.code = NOT_FOUND; the component server
+  // translates that into a Kubernetes 404.
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // List returns all objects in a namespace (or cluster-wide if the
+  // resource is cluster-scoped). LabelSelector is a string; the
+  // component also filters defensively.
+  rpc List(ListRequest) returns (ListResponse);
+
+  // Create stores a new object. The backend assigns UID/CreationTime;
+  // the component server assigns ResourceVersion on the watch fanout.
+  rpc Create(CreateRequest) returns (CreateResponse);
+
+  // Update replaces an object. ForceAllowCreate indicates upsert
+  // semantics (PATCH with apply).
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+
+  // Apply is the backend hook for Server-Side Apply. It receives the
+  // final, merged object computed by the component server's field
+  // manager plus the caller's field-manager name. A simple backend
+  // may implement this as a thin wrapper around Update; a richer
+  // backend may record ownership, diff against prior applied
+  // intent, or reject conflicts itself.
+  rpc Apply(ApplyRequest) returns (ApplyResponse);
+
+  // Delete removes an object.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // Watch opens a long-running server stream. The backend pushes
+  // WatchEvent messages until the client closes the stream or the
+  // server errors.
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+}
+
+// UserInfo carries the forwarded aggregation-layer identity. Mirrors
+// k8s.io/apiserver/pkg/authentication/user.Info without the package
+// dependency.
+message UserInfo {
+  string name = 1;
+  string uid = 2;
+  repeated string groups = 3;
+  map<string, StringList> extra = 4;
+}
+
+message StringList {
+  repeated string values = 1;
+}
+
+// TableColumn is a minimal mirror of metav1.TableColumnDefinition.
+// We only need name + type + description to render kubectl tables.
+message TableColumn {
+  string name = 1;
+  string type = 2;
+  string format = 3;
+  string description = 4;
+  int32 priority = 5;
+}
+
+message GetSchemaRequest {}
+
+message GetSchemaResponse {
+  // GVR identifies the resource.
+  string group = 1;
+  string version = 2;
+  string resource = 3;  // plural, lowercase, used in URLs
+  string kind = 4;      // CamelCase singular
+  string singular = 5;  // lowercase singular, used by kubectl
+
+  // Namespaced is true for namespace-scoped resources.
+  bool namespaced = 6;
+
+  // Writable indicates whether the backend accepts Create/Update/Delete.
+  // If false, the component server registers a read-only resource.
+  bool writable = 7;
+
+  // OpenAPIV3 is a JSON-encoded OpenAPI v3 schema object for the
+  // resource's top-level type. It is passed to kubectl explain and
+  // used to drive Server-Side Apply's typed merge. Structure of the
+  // JSON must be a single OpenAPI v3 Schema Object; the component
+  // server supplies the schema for the list wrapper itself.
+  //
+  // New in 0017: the schema must include the
+  // `x-kubernetes-group-version-kind` extension on the top-level
+  // schema; the component server will not synthesize it. A backend
+  // that does not ship an OpenAPI gets the deduced-schema fallback
+  // (SSA collapses to CRD-style atomic merge; explain degrades).
+  bytes openapi_v3 = 8;
+
+  // Columns is the list of kubectl-get table columns.
+  repeated TableColumn columns = 9;
+
+  // RowFields are jsonpath-style field references the component
+  // server will extract from each object for each table row. Length
+  // should match Columns. A missing / unresolvable field renders as
+  // the empty string.
+  repeated string row_fields = 10;
+
+  // ShortNames is kubectl's short-name list (e.g. ["no", "nt"]).
+  // Optional; if empty no short names are registered.
+  repeated string short_names = 11;
+
+  // Categories is kubectl's category list (e.g. ["all"]).
+  // Optional.
+  repeated string categories = 12;
+
+  // SupportsServerSideApply is an opt-in. When true, the component
+  // server registers the resource as a Patcher and wires the Apply
+  // RPC. When false, SSA PATCH requests return MethodNotAllowed.
+  // (Distinct from Writable, which gates all mutating verbs.)
+  bool supports_server_side_apply = 13;
+}
+
+message GetRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message GetResponse {
+  bytes object_json = 1;
+}
+
+message ListRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+}
+
+message ListResponse {
+  // Items is a JSON array of objects. The component server wraps
+  // them in a <Kind>List envelope itself.
+  repeated bytes items_json = 1;
+  // ResourceVersion, if present, is the backend's opaque idea of
+  // "what version this list is at". The component server doesn't
+  // currently use it (it tracks its own RV) but we carry it so the
+  // protocol can evolve.
+  string resource_version = 2;
+}
+
+message CreateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  bytes object_json = 3;
+
+  // FieldManager, if non-empty, is the fieldManager name from the
+  // client. New in 0017.
+  string field_manager = 4;
+}
+
+message CreateResponse {
+  bytes object_json = 1;
+}
+
+message UpdateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  bool force_allow_create = 5;
+
+  // FieldManager. New in 0017.
+  string field_manager = 6;
+}
+
+message UpdateResponse {
+  bytes object_json = 1;
+  bool created = 2;
+}
+
+// ApplyRequest carries the result of the component server's own
+// Server-Side Apply field-manager computation. The backend may
+// treat this identically to Update, or may perform additional
+// bookkeeping. New in 0017.
+message ApplyRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  // The fully-merged object JSON, including updated managedFields.
+  bytes object_json = 4;
+  // The caller-supplied fieldManager name.
+  string field_manager = 5;
+  // Force is the `force` param of SSA.
+  bool force = 6;
+}
+
+message ApplyResponse {
+  bytes object_json = 1;
+  bool created = 2;
+}
+
+message DeleteRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message DeleteResponse {
+  bytes object_json = 1;
+  bool deleted = 2;
+}
+
+message WatchRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+  // ResourceVersion starts the watch at a point in time. Empty
+  // string or "0" means "from now with an initial list snapshot".
+  string resource_version = 4;
+}
+
+enum EventType {
+  EVENT_UNSPECIFIED = 0;
+  EVENT_ADDED = 1;
+  EVENT_MODIFIED = 2;
+  EVENT_DELETED = 3;
+  EVENT_BOOKMARK = 4;
+}
+
+message WatchEvent {
+  EventType type = 1;
+  bytes object_json = 2;
+}

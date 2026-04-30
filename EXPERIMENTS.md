@@ -40,6 +40,20 @@ delegated to an unstructured-JSON backend, while SSA and rich
 `kubectl explain` degrade because they assume typed Go models.
 Status: complete. See `FINDINGS/0013-krm-component-skeleton.md`.
 
+**`0017-krm-protocol-refinement`** — refines 0013 to close the two
+library-feature gaps it surfaced. `kubectl explain` rendered only a
+catch-all description because the backend's OpenAPI wasn't composed
+into the defs map; SSA broke at `managedfields.NewTypeConverter`.
+Both close: threading the backend's OpenAPI through the defs map
+(keyed at the Scheme's sample-object canonical name) unblocks
+explain, and registering a typed Go wrapper (`dyn.Object`) under
+the GVK unblocks the library's empty-object-GVK path so SSA works
+end-to-end including conflict detection and force-conflicts.
+Sharpens the typed-vs-unstructured boundary from 0013: the wrapper
+must be typed (for Scheme.ObjectKinds), but its content can remain
+an untyped bag (for resource-agnostic CRUD). Status: complete. See
+`FINDINGS/0017-krm-protocol-refinement.md`.
+
 - **`0005-argocd-compat`** — install ArgoCD into a dedicated kind
   cluster, point at an Application referencing plain Kubernetes
   manifests, observe what ArgoCD's cluster cache does with our
