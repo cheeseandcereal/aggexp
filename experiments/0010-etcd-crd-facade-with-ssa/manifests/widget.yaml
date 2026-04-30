@@ -1,0 +1,11 @@
+apiVersion: aggexp.io/v1
+kind: Widget
+metadata:
+  name: sample
+spec:
+  description: "hello from experiment 0010"
+  counter: 7
+  tags:
+    env: lab
+    alice-tag: visible-to-alice
+    bob-tag: visible-to-non-alice

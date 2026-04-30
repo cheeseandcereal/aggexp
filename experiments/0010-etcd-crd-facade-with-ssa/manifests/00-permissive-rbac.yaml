@@ -1,0 +1,50 @@
+# Permissive RBAC on widgets.aggexp.io (exposed by the AA) so
+# system:authenticated can CRUD through kubectl.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-widgets-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["widgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-widgets-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-widgets-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
+---
+# The AA's ServiceAccount needs full CRUD on the backing CRD so its
+# dynamic client can forward every operation. This is the whole point
+# of the experiment: the AA is a facade over the host cluster's own
+# CRD storage, so the AA's identity must be authorized against the
+# backing group.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-widgetstorage-backend
+rules:
+  - apiGroups: ["aggexpstorage.aggexp.io"]
+    resources: ["widgetstorages"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-widgetstorage-backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-widgetstorage-backend
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
