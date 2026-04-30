@@ -18,7 +18,7 @@ provide the evidence.
 
 ## Current state
 
-Informed by nine experiments:
+Informed by thirteen experiments:
 
 - `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
 - `FINDINGS/0002-hello-aggregated` — library-backed (`k8s.io/apiserver`)
@@ -38,12 +38,27 @@ Informed by nine experiments:
 - `FINDINGS/0009-ack-aggregated-s3` — ACK-pattern inversion: AWS S3
   Bucket as aggregated API with no local state; live reads, live
   writes; watch via poll-diff.
+- `FINDINGS/0010-etcd-crd-facade-with-ssa` — AA as a facade over a
+  CRD served by the host kube-apiserver; recovers SSA managedFields,
+  finalizers, ownerReferences at the cost of one extra hop.
+- `FINDINGS/0011-async-backend-sim` — async-provisioning mock (30s
+  provision / 10s deprovision) fronted by a stateless AA; softens
+  0009's "async breaks the inversion" claim; surfaces the
+  `initial-events-end` bookmark gap in the substrate.
+- `FINDINGS/0012-controller-runtime-manager-compat` — controller-
+  runtime manager (not just the raw reflector) against a writable-
+  ish AA; leader election works, reconcile fires, but SSA and
+  finalizers require backend features 0007 doesn't have.
+- `FINDINGS/0013-krm-component-skeleton` — first experiment in the
+  KRM middle-layer arc: a deployable generic component server
+  registers a resource type dynamically at startup by asking a
+  thin gRPC backend for its schema.
 
 MVP-lab and MVP-example (GitHub repos end-to-end) are both complete;
 see `FINDINGS/example-e1-github-repos.md`.
 
-`runtime/` substrate exists and is consumed by experiments 0007 and
-0009 today. See `ARCHITECTURE.md`.
+`runtime/` substrate exists and is consumed by experiments 0007,
+0009, 0010, 0011, and 0013-component. See `ARCHITECTURE.md`.
 
 Remaining claims below without a `FINDINGS/*` reference are
 unvalidated.
@@ -90,13 +105,40 @@ steady state (one LIST+WATCH every ~5 min reflector resync). The
 wire-level behavior passed; failures occurred at the authorization
 boundary, not the protocol (see Per-request authorization below).
 
+**controller-runtime's manager layer works on top of the raw
+reflector that `0008` validated** [`0012`]. Leader election via
+Leases in the host cluster works at ms-scale; reconcile fires
+within 1s of object creation; reflector backoff on AA unavailability
+is ~1-3-3-13s, no hot-loop. The manager-startup race (mgr.Start()
+runs before our APIService is ready) produces a ~20s warning burst
+but self-heals. Two concrete gaps surfaced at the manager level:
+(a) `client.Options.Cache.Unstructured: true` is opt-in; default-off
+silently bypasses the manager cache for unstructured reads and
+turns the AA into the bottleneck. (b) Pod-restart UID regeneration
+propagates to controllers as a synthesized delete-add pair per
+object — a controller doing real work in Reconcile redoes it on
+every AA restart at O(objects) cost. Promotes the deterministic-UID
+candidate from "nice to have" to "load-bearing at scale."
+
+**A generic schema-dynamic component server can honor the full
+wire contract with no per-resource Go types** [`0013`]. Registering
+`*unstructured.Unstructured` against a dynamic Scheme (GVK received
+over gRPC at startup) passes `kubectl get / apply / delete / watch`,
+plus discovery, plus `explain` in degraded form. What it cannot do
+is anything that requires a typed model of the resource: SSA fails
+at `managedfields.NewTypeConverter` with "unstructured object has
+no kind"; per-field `explain` collapses to a catch-all description.
+This is the line between "wire protocol" (honor-able from
+unstructured) and "library features" (typed-model-dependent) —
+sharper than any prior experiment drew it.
+
 Open questions:
 
 - How does Flux's source-controller / kustomize-controller behave?
-  `0005` only covered ArgoCD.
-- How does controller-runtime's manager layer behave on top of
-  informers that `0008` established work? The manager has caches
-  and reconcile loops that may add new assumptions.
+  `0005` only covered ArgoCD. Queued as `0014-flux-compat`.
+- Can the SSA typed-converter be driven by an OpenAPI schema
+  shipped over the wire at component-server startup, instead of a
+  compile-time typed scheme? Queued as `0017-krm-protocol-refinement`.
 - `WatchListClient` (1.32 client-go default-on, server default-off)
   is a different wire path than classic list-then-watch. Untested
   against our AA.
@@ -167,20 +209,28 @@ Open questions:
 
 ## Storage independence
 
-**Confirmed end-to-end against four backends** [`0002`, `0004`,
-`0007`, `0009`]. The library does not require etcd: replacing
-`RecommendedOptions.Etcd` with a bespoke Options struct is clean.
-For in-memory state, ~250 lines of `rest.Storage` implementation plus
-standard broadcaster wiring. For external state (GitHub, AWS S3), the
-incremental cost is a small API client + a polling loop. For disk
-(fs files), the same pattern adapts to a different source of truth.
+**Confirmed end-to-end against six backends across four storage
+axes** [`0002`, `0004`, `0007`, `0009`, `0010`, `0011`, `0013`]:
 
-**The substrate makes this a promoted pattern** [`0007`, `0009`]. A
-`Backend` interface plus an adapter in `runtime/storage` means new
-experiments write a few hundred lines of backend-specific code and
-inherit the rest.Storage interfaces, watch fan-out, RV generation,
-and Table rendering. `0007`'s fs backend was ~36% shorter than
-0004's hand-rolled shape; `0009`'s S3 backend is comparable.
+1. **In-memory direct.** `runtime/storage.Backend` + a `sync.Map`.
+   `0002` (Hello), `0007` (fs), `0013` component-server's note-
+   backend. ~250 lines of backend code.
+2. **External API as source of truth, polling cache for watch.**
+   `0004` (GitHub), `0009` (S3), `0011` (async mock). Polling
+   loop diffs against the last observation and publishes events.
+3. **CRD facade on the host cluster.** `0010`. The AA is
+   stateless; persistence lives in the host kube-apiserver's etcd,
+   reached via `dynamic.Interface`. Recovers library features
+   stateless variants lose (SSA managedFields, finalizers,
+   ownerReferences, real resourceVersions).
+4. **Component-server / thin-backend over gRPC.** `0013`. Storage
+   is whatever the backend chooses; the component server is
+   stateless. The backend can be in any language.
+
+The library does not require etcd: replacing `RecommendedOptions.Etcd`
+with a bespoke Options struct is clean. The substrate's `Backend`
+interface has now survived four experiment-level consumers plus one
+component-server adapter, with no material interface changes.
 
 **Three stateful-vs-stateless costs observed** [`0004`, `0006`,
 `0008`]:
@@ -200,7 +250,7 @@ and Table rendering. `0007`'s fs backend was ~36% shorter than
    independent knobs [`0004`].
 
 **Library features that assume persistence do not survive a
-stateless AA** [`0009`]. Three named casualties from the
+stateless AA** [`0009`, `0013`]. Three named casualties from the
 ACK-inversion experiment:
 
 1. **SSA's field ownership tracking** is library-layer state.
@@ -209,53 +259,91 @@ ACK-inversion experiment:
    has nowhere to persist them. A conflict-from-second-manager
    scenario has no prior ownership record to conflict against.
    Three remediations: abandon SSA (awkward — library enables it
-   by default); encode managedFields into the backend (reintroduces
-   state, usually lossy); shadow-persist in etcd (resurrects the
-   controller model this inversion set out to avoid).
+   by default); encode managedFields into the backend; use a CRD
+   facade where the host kube-apiserver persists them.
 2. **ObjectMeta bookkeeping**: labels, annotations, finalizers,
    and ownerReferences have no natural home. kubectl's
    `last-applied-configuration` annotation triggers a warning on
    every apply but functionally works (kubectl re-patches it each
    time). Finalizers and ownerReferences would need backend
    modeling that doesn't exist naturally in most backends.
-3. **Sync-vs-async backend boundary.** The inverted model fits
-   synchronous backends (S3 Bucket, SNS Topic) cleanly. For
-   asynchronous provisioning (EKS cluster creation, IAM
-   propagation, RDS), the AA's Create-equivalent would need to
-   block the HTTP request for minutes — not workable. ACK's
-   controller pattern earns its complexity specifically by
-   handling async. An AA covering the full AWS surface would
-   need state for async operations, which defeats the
-   inversion's premise for those resources.
+3. **Sync-vs-async backend boundary** — now nuanced by `0011`.
+   The naive read was that async backends force state back in
+   because Create would have to block. In practice a Create that
+   returns immediately with `phase=Provisioning` and lets watch
+   stream the transition reproduces the controller-model
+   status-evolves-over-time behavior without any backend state
+   in the AA. The thesis survives async. What breaks is specific
+   ecosystem idioms (see below), not the stateless posture.
+
+**The CRD-facade option recovers all three casualties**
+[`0010`]. A stateless AA whose `Get/List/Create/Update/Delete/Watch`
+call through to a CRD on the host kube-apiserver via the dynamic
+client inherits managedFields persistence, finalizer semantics,
+ownerReferences + GC, and real (non-synthetic) resourceVersions
+from the host — at the cost of one extra hop per request (~0 ms
+perceptible at lab scale). This is a **third storage axis**
+alongside (in-memory) and (external-API-as-truth): persistence
+lives in the host cluster's etcd but **the AA itself is still
+stateless**. A gotcha: if the facade renames fields between the
+exposed and backing schemas, `managedFields` entries' `apiVersion`
+and `fieldsV1` keys must be rewritten symmetrically — the library
+silently drops mismatched entries, and SSA *appears* to work with
+zero ownership tracked. This is a facade-level finding, not a
+general one.
+
+**The component-server / thin-backend shape is a fourth storage
+axis** [`0013`]. Storage lives entirely on the backend side of a
+gRPC boundary; the component server is stateless (other than watch
+broadcaster caching). The backend can use anything for
+persistence — in-memory, a database, another external API. The
+component server doesn't care and has no compile-time knowledge
+of the resource type.
+
+**Async backends cost two specific ecosystem idioms** [`0011`].
+`kubectl wait --for=jsonpath=...` fails against our AA because
+the substrate doesn't emit the `k8s.io/initial-events-end` bookmark
+that WatchList-aware clients (1.31+) hard-require. `kubectl delete
+--wait=true` (the default) hangs past the deprovision window;
+`--wait=false` works cleanly. The former is a substrate-level gap
+worth closing; the latter appears to be a cache-staleness issue on
+reconnect. Neither breaks the inversion's thesis; both are
+addressable.
 
 The inversion pays off for the synchronous / simple-lifecycle
-subset of backends. For those, the stateless AA is a better fit
-than CRD+controller: no drift, no reconciler backoff, no stuck
-finalizers, no two-process coordination. For complex backends,
-the controller pattern's complexity is load-bearing.
+subset of backends AND for async backends that model
+phase-evolution through status. For complex backends that need
+persisted intent distinct from observed state (retry queues,
+desired-state reconciliation across partial failures), the
+controller pattern's complexity is load-bearing.
 
 **Synthetic resourceVersion suffices for real informers** [`0002`,
 `0004`, `0008`]. A single `atomic.Uint64` stringified as decimal
 is accepted. Returning `410 Gone` on any resume request with an RV
 other than current makes reflectors relist — though they more often
 reach that state via a 503-on-connection-refused than via an actual
-410 on resume.
+410 on resume. When the backing store is a CRD [`0010`] the AA
+inherits real host-kube-apiserver resourceVersions, which removes
+the synthesis question entirely for that axis.
 
 Open questions:
 
 - Can SSA's ownership tracking be reconstructed by encoding
   managedFields into backend-specific metadata (S3 tags, GitHub
   repo description fields, etc.) without forcing a general etcd
-  shadow store? Queued as `ssa-managedfields-in-backend`.
-- What does "async backend" actually cost when you try to model
-  one? Queued as `async-backend-sim`.
+  shadow store? Resolved for the CRD-backed case [`0010`]; still
+  open for non-CRD backends (S3 tags is the obvious target).
+- The `initial-events-end` bookmark gap [`0011`] is a substrate-
+  level fix queued as a candidate. Small in scope; high in
+  operational value.
 - ETag-aware polling: our GitHub and S3 clients don't honor
   ETags. How much rate-limit headroom does adding them buy?
 - Webhook-driven backends (GitHub pushes events; AWS has
   CloudTrail and EventBridge) could skip polling entirely.
   Untested.
 - Deterministic UIDs (hash of backend's stable ID) would preserve
-  identity across AA restarts. Not implemented.
+  identity across AA restarts. Not implemented. Promoted to
+  load-bearing-at-scale by `0012`'s phantom-reconcile finding.
 
 ---
 
@@ -349,13 +437,21 @@ schema:
   Policies depending on fields inside the object at CREATE time
   need admission logic. The substrate does not yet surface an
   admission hook.
-- **Synchronous vs. asynchronous backend operations** [`0009`].
-  The stateless-AA model fits sync backends (S3 create returns in
-  milliseconds) cleanly. For async provisioning (EKS clusters,
-  RDS, IAM role propagation), the model breaks down: the AA's
-  Create-equivalent would block on minute-scale operations. An
-  AA replacement for ACK would need state to handle async —
-  which is the controller pattern rebuilt.
+- **Synchronous vs. asynchronous backend operations** [`0009`,
+  `0011`]. Refined from the `0009` reading: the stateless-AA
+  model handles async backends cleanly **if** Create returns
+  immediately with `phase=Provisioning` and watch streams
+  subsequent status transitions. What breaks is specific
+  ecosystem idioms like `kubectl wait --for=jsonpath` (see
+  Storage independence for the substrate fix queued).
+- **Typed vs. unstructured resource registration** [`0013`]. A
+  generic component server registering `*unstructured.Unstructured`
+  can honor the full CRUD+watch+discovery wire contract without
+  compile-time knowledge of any resource type. What it cannot do
+  is support SSA (the library's managedFields typed-converter
+  requires a typed scheme) or rich per-field `kubectl explain`.
+  This is the line between wire-protocol-level features (portable
+  to unstructured) and library-typed-model features (aren't).
 
 Untested shape-boundaries: backends with inconsistent schema,
 without stable names, without list operations, without deletion
@@ -410,9 +506,27 @@ LIST+WATCH, and operated without wire-protocol complaint over 15
 minutes through one AA outage. The only breakage was at the authz
 boundary (see Per-request authorization above).
 
+**controller-runtime's manager layer also works** [`0012`], with
+four specific observations beyond what raw reflectors expose:
+(a) manager startup vs. APIService-ready is racy and surfaces a
+~20s warning burst; (b) `client.Options.Cache.Unstructured: true`
+is opt-in and its default-off setting silently bypasses the manager
+cache; (c) pod-restart UID regeneration amplifies into one
+synthesized delete+add reconcile pair per object, so a controller
+doing real work in Reconcile redoes it on every AA restart at
+O(objects) cost; (d) leader election via Leases in the host
+cluster (since our AA doesn't serve Leases) works cleanly.
+
+**The `initial-events-end` bookmark is missing from the substrate**
+[`0011`]. WatchList-aware clients (1.31+ with
+`InitialEventsListBlueprintAnnotationKey`) hard-require it;
+`kubectl wait --for=jsonpath` times out rather than triggering on
+phase transitions. Fix is substrate-level: emit a bookmark event
+at the tail of initial-state replay. Queued as
+`watch-initial-events-end-bookmark`.
+
 Still unmeasured:
 
-- Controller-runtime manager (not just the raw reflector).
 - CA rotation with simultaneous `APIService.caBundle` rotation.
 - `WatchListClient` feature gate behavior.
 - Hours-long informers that outlive multiple backend poll cycles
@@ -422,14 +536,13 @@ Still unmeasured:
 
 ## Process observations
 
-Five observations after nine experiments and one substrate
+Six observations after thirteen experiments and one substrate
 promotion:
 
 1. **Findings proportional to signal** holds. Dense experiments
-   (0001, 0002, 0003, 0006, 0008, 0009) produced long FINDINGS;
-   lean ones (0005, 0007) produced tighter ones. Agents have not
-   been padding, which was the risk the ethos was guarding
-   against.
+   (0001, 0002, 0003, 0006, 0008, 0009, 0010, 0011, 0013)
+   produced long FINDINGS; lean ones (0005, 0007, 0012) produced
+   tighter ones. Agents have not been padding.
 2. **Parallel agents on the same kind cluster clobbered each
    other's state** during the 0005/0008 arcs. Each agent created
    its own `aggexp-<slug>` cluster after the first collision.
@@ -438,25 +551,40 @@ promotion:
    clusters.
 3. **Substrate extraction was deliberate and worked**. The
    two-driver precondition (0002 + 0004) produced a natural
-   `Backend` interface that survived its second consumer (0007)
-   and its third (0009) with only minor seam issues (OpenAPI
-   still copy-pasted into experiments; `WritableBackend.Update`
-   pre-fetch-then-mutate did not fit the S3 delete-then-create
-   case but did fit update-in-place). Promotion discipline —
-   tests, docs, thought-through interface — was honored.
-4. **The six fundamentals frame has held** across nine
-   experiments. No new fundamental has emerged. Three adjacent
+   `Backend` interface that survived its second consumer (0007),
+   third (0009), fourth (0010 CRD facade), fifth (0011 async mock)
+   and the 0013 component-server's alternative adapter with only
+   minor seam issues (OpenAPI still copy-pasted into experiments;
+   `WritableBackend.Update` pre-fetch-then-mutate did not fit the
+   S3 delete-then-create case but did fit every other case).
+   Promotion discipline — tests, docs, thought-through interface —
+   was honored.
+4. **The six fundamentals frame has held** across thirteen
+   experiments. No new fundamental has emerged. Four adjacent
    concerns have been named and fit cleanly under existing
    fundamentals without demanding a rewrite of the list:
-   authz-vs-admission, substrate-promotion triggers, and
-   sync-vs-async backend operations.
+   authz-vs-admission [`0003`], substrate-promotion triggers,
+   sync-vs-async backend operations (nuanced by `0011`), and
+   typed-vs-unstructured resource registration [`0013`].
 5. **The inversion thought experiments (0006 broker, 0009
-   ACK-AA) were disproportionately productive.** They exposed
-   specific library-layer features that assume persistence
-   (SSA managedFields; labels/annotations survival; finalizer
-   semantics) — findings a positive "what works" probe would
-   have missed. Worth repeating: inversions surface assumptions
-   that direct probes don't.
+   ACK-AA, 0013 KRM component) were disproportionately
+   productive.** They exposed specific library-layer features
+   that assume persistence (SSA managedFields; finalizer
+   semantics) or typed Go models (SSA typed-converter; rich
+   explain) — findings a positive "what works" probe would have
+   missed. Worth repeating: inversions surface assumptions that
+   direct probes don't.
+6. **Sub-agent task interruption is recoverable when the
+   worktree + commit convention is followed.** In Wave 1 of the
+   ten-experiment arc, the 0013 sub-agent was interrupted before
+   committing its working tree. Recovery: pick up the untracked
+   files in the worktree, fix a trivial missing-import bug, run
+   the test scenarios manually, write FINDINGS, commit under the
+   original branch name. No rework of the agent's actual
+   implementation was necessary. The convention held; the
+   recovery was well-defined. Worth noting in AGENTS.md's
+   parallel-dispatch section: "if a sub-agent is interrupted,
+   resume from its worktree rather than re-dispatching."
 
 The ethos itself needs no changes yet. If a pattern emerges of
 experiments going longer than they need to, or of SYNTHESIS
