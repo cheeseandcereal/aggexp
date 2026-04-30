@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp-file-controller
+  namespace: aggexp-system
+  labels:
+    app: aggexp-file-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggexp-file-controller
+  template:
+    metadata:
+      labels:
+        app: aggexp-file-controller
+    spec:
+      serviceAccountName: aggexp-file-controller
+      containers:
+        - name: controller
+          image: aggexp-file-controller:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - --zap-log-level=info
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
