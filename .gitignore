@@ -51,6 +51,10 @@ experiments/0013-krm-component-skeleton/component/cmd/aggexp-krm-component/aggex
 experiments/0013-krm-component-skeleton/backend-note/note-backend
 experiments/0013-krm-component-skeleton/backend-note/cmd/note-backend/note-backend
 
+# Per-experiment ephemera: isolated kubeconfigs and run-captured artifacts.
+experiments/0016-aa-authz-aware-controllers/.kubeconfig-*
+experiments/0016-aa-authz-aware-controllers/artifacts/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db

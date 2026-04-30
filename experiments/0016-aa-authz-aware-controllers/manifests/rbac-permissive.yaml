@@ -1,0 +1,27 @@
+# Permissive upstream RBAC used by patterns A and B.
+#
+# Grants get|list|watch on repos.aggexp.io to system:authenticated, so
+# every authenticated caller (humans, controller SAs) is able to reach
+# the AA. The AA's own authorizer is then the real gate — which is the
+# posture 0003 originally validated.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-repos-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["repos"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-repos-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-repos-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
