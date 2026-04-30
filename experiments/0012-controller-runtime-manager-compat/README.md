@@ -88,9 +88,9 @@ kubectl -n aggexp-system logs -l app=aggexp-file-controller -f
 
 ## Status
 
-in-progress
+complete
 
-<!-- flipped to `complete` once FINDINGS/0012-... is written. -->
+<!-- see FINDINGS/0012-controller-runtime-manager-compat.md -->
 
 ## Decisions made
 

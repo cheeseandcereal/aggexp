@@ -197,10 +197,23 @@ SSA working out-of-the-box. Status: complete. See
   sustained against a 0002-style synthetic-RV AA; drove 410,
   AA pod restart, cert rotation, slow-handler scenarios. Status:
   complete. See `FINDINGS/0008-long-lived-informer.md`.
-- `controller-runtime-manager-compat` — controller-runtime on top
-  of a synthetic-RV AA. `0008` only probed the raw reflector;
-  controller-runtime's cache + reconcile loop add their own
-  assumptions. Derived from `0008`.
+- **`0012-controller-runtime-manager-compat`** — controller-runtime
+  Manager (caches, reconcile loop, leader election, finalizer
+  lifecycle, ownerReference handling) against 0007's read-only
+  AA. Status: complete. See
+  `FINDINGS/0012-controller-runtime-manager-compat.md`.
+- `controller-runtime-on-writable-aa` — `0012` was limited by
+  0007's read-only backend. The interesting half of the SSA /
+  finalizer story (managedFields persistence under a writable
+  backend, backend-modeled finalizers) needs a writable AA.
+  Natural target: `0009-ack-aggregated-s3` or a bespoke writable
+  fs-driver. Derived from `0012`.
+- `controller-runtime-dynamic-client-phantom-reconciles` — `0012`
+  observed that pod-restart amnesia produces one
+  (delete-reconcile + add-reconcile) pair per object on a
+  stateless AA. At 3 objects it is invisible; measure the cost
+  at 10k+ and see whether it shifts the case for deterministic
+  UIDs. Derived from `0012`.
 - `watch-list-feature-gate` — the `WatchListClient` feature gate
   (default-on in 1.32 client-go but default-off on 1.32 servers)
   is a different wire path. Not exercised by `0008`. Derived
@@ -220,6 +233,7 @@ SSA working out-of-the-box. Status: complete. See
 - ~~`cert-rotation-under-watch`~~ — the same-CA case answered
   by `0008`; residual CA-rotation case tracked as
   `ca-rotation-under-watch` above.
+- ~~`controller-runtime-manager-compat`~~ — answered by `0012`.
 
 ---
 
