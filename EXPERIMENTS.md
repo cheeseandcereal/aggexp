@@ -45,10 +45,19 @@ Status: complete. See `FINDINGS/0013-krm-component-skeleton.md`.
   manifests, observe what ArgoCD's cluster cache does with our
   read-only aggregated API. Status: complete. See
   `FINDINGS/0005-argocd-compat.md`.
-- `flux-compat` — same with Flux. Now more interesting after 0005
-  exposed the gitops-engine "one LIST failure bricks cluster cache"
-  behavior; does Flux's source-controller / kustomize-controller
-  react the same way?
+- **`0014-flux-compat`** — sibling to 0005 with Flux v2.8.6. Whole
+  question answered negatively: Flux's default controller set does
+  **not** do discovery-driven LIST, so the "one LIST failure bricks
+  cluster cache" pattern from 0005 does not apply. Flux never
+  touched our AA across a 10-minute observation through an AA
+  outage. Status: complete. See `FINDINGS/0014-flux-compat.md`.
+- `flux-applies-a-repo` — derived from `0014`. The probed
+  configuration had our AA off to the side. If a Flux Kustomization
+  rendered a `Repo` object as part of its inventory, kustomize-
+  controller would register a PartialObjectMetadata informer on
+  `repos.aggexp.io` and Flux would start exercising our AA's wire
+  path. Depends on a writable AA (MVP-example E3). Analog of
+  `argocd-application-targets-aa`.
 - `argocd-application-targets-aa` — ArgoCD Application directly
   targets a `Repo` (requires writable AA; depends on MVP-example E3
   prerequisites). Probes ArgoCD's behavior when the AA refuses
