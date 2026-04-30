@@ -46,6 +46,10 @@ experiments/0009-ack-aggregated-s3/aggexp-s3
 experiments/0009-ack-aggregated-s3/cmd/aggexp-s3/aggexp-s3
 experiments/0009-ack-aggregated-s3/s3-mock/s3-mock
 experiments/0012-controller-runtime-manager-compat/controller/controller
+experiments/0013-krm-component-skeleton/component/aggexp-krm-component
+experiments/0013-krm-component-skeleton/component/cmd/aggexp-krm-component/aggexp-krm-component
+experiments/0013-krm-component-skeleton/backend-note/note-backend
+experiments/0013-krm-component-skeleton/backend-note/cmd/note-backend/note-backend
 
 # OS / editor noise
 .DS_Store
