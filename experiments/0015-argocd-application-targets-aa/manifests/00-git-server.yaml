@@ -1,0 +1,162 @@
+# In-cluster Git server.
+#
+# Runs a single pod that serves a bare Git repository over the git
+# protocol (port 9418) via `git daemon`. An initContainer constructs
+# the repository at pod start from a ConfigMap of YAML files. ArgoCD's
+# repo-server clones from `git://git-server.git-server.svc:9418/aggexp.git`.
+#
+# The experiment drives revisions by rewriting the ConfigMap and
+# restarting the Deployment (which reruns the initContainer and
+# rebuilds the bare repo from scratch). This is a lab convenience,
+# not a production git server.
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: git-server
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-content
+  namespace: git-server
+data:
+  widget-alpha.yaml: |
+    apiVersion: aggexp.io/v1
+    kind: Widget
+    metadata:
+      name: alpha
+      labels:
+        managed-by: argocd-experiment-0015
+        role: primary
+    spec:
+      description: "alpha widget synced from Git (revision v1)"
+      counter: 1
+      tags:
+        env: lab
+        source: argocd
+        revision: v1
+  widget-bravo.yaml: |
+    apiVersion: aggexp.io/v1
+    kind: Widget
+    metadata:
+      name: bravo
+      labels:
+        managed-by: argocd-experiment-0015
+        role: secondary
+    spec:
+      description: "bravo widget synced from Git (revision v1)"
+      counter: 2
+      tags:
+        env: lab
+        source: argocd
+        revision: v1
+  widget-charlie.yaml: |
+    apiVersion: aggexp.io/v1
+    kind: Widget
+    metadata:
+      name: charlie
+      labels:
+        managed-by: argocd-experiment-0015
+        role: tertiary
+    spec:
+      description: "charlie widget synced from Git (revision v1)"
+      counter: 3
+      tags:
+        env: lab
+        source: argocd
+        revision: v1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: git-server
+  namespace: git-server
+spec:
+  selector:
+    app: git-server
+  ports:
+    - name: git
+      port: 9418
+      targetPort: 9418
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-server
+  namespace: git-server
+  labels:
+    app: git-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: git-server
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: git-server
+    spec:
+      # The runtime image is alpine/git, which provides git + busybox.
+      # The init container seeds a bare repository from the ConfigMap.
+      initContainers:
+        - name: seed-repo
+          image: alpine/git:v2.47.2
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              set -x
+              cd /srv/git
+              rm -rf work aggexp.git
+              mkdir -p work
+              cp /content/*.yaml work/
+              cd work
+              git init -q -b main
+              git config user.email "git-server@aggexp.local"
+              git config user.name  "git-server"
+              git add .
+              git commit -q -m "aggexp Widget manifests from ConfigMap"
+              cd /srv/git
+              git clone --bare work aggexp.git
+              rm -rf work
+              touch aggexp.git/git-daemon-export-ok
+              ls -la aggexp.git
+          volumeMounts:
+            - name: repo
+              mountPath: /srv/git
+            - name: content
+              mountPath: /content
+              readOnly: true
+      containers:
+        - name: gitd
+          image: alpine/git:v2.47.2
+          command:
+            - git
+            - daemon
+            - --reuseaddr
+            - --base-path=/srv/git
+            - --export-all
+            - --verbose
+            - --enable=upload-pack
+            - --enable=upload-archive
+            - /srv/git
+          ports:
+            - containerPort: 9418
+              name: git
+          volumeMounts:
+            - name: repo
+              mountPath: /srv/git
+          readinessProbe:
+            tcpSocket:
+              port: 9418
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: repo
+          emptyDir: {}
+        - name: content
+          configMap:
+            name: git-content
