@@ -1,0 +1,93 @@
+# NOTE: these manifests are copies of experiment 0007's approach.
+# AGENTS.md forbids modifying 0007; we duplicate here so this
+# experiment is self-contained and can deploy the AA without
+# touching 0007's tree at runtime.
+#
+# This deploys the 0007 AA image (aggexp-files:dev) built from the
+# repo root via:
+#   docker build -f experiments/0007-runtime-fs-driver/Dockerfile \
+#     -t aggexp-files:dev .
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggexp
+  template:
+    metadata:
+      labels:
+        app: aggexp
+    spec:
+      serviceAccountName: aggexp
+      containers:
+        - name: aggexp
+          image: aggexp-files:dev
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/etc/aggexp/certs/tls.crt
+            - --tls-private-key-file=/etc/aggexp/certs/tls.key
+            - --bind-address=0.0.0.0
+            - --secure-port=8443
+            - --enable-priority-and-fairness=false
+            - --fs-root=/etc/aggexp-sample-files
+            - --fs-poll-interval=5s
+            - --v=2
+          ports:
+            - name: https
+              containerPort: 8443
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/aggexp/certs
+              readOnly: true
+            - name: sample-files
+              mountPath: /etc/aggexp-sample-files
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: aggexp-serving-cert
+        - name: sample-files
+          configMap:
+            name: aggexp-sample-files
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aggexp-sample-files
+  namespace: aggexp-system
+data:
+  readme.txt: |
+    Sample file used by experiment 0012 as a controller-runtime target.
+  haiku.txt: |
+    controller reconciles
+    the file on disk just sits there
+    ssa returns 405
+  notes.md: |
+    # 0012 sample
+
+    Three files; the reconciler is expected to attempt SSA, finalizer,
+    and ownerRef writes against each of them.

@@ -1,0 +1,27 @@
+# Permissive RBAC for reading files; mirrors 0007's approach so
+# interactive kubectl invocations can GET/LIST/WATCH Files.
+# The controller SA has stricter-than-necessary rules of its own in
+# 10-controller-rbac.yaml (full CRUD).
+#
+# Copy of experiments/0007-runtime-fs-driver/manifests/00-permissive-rbac.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-files-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["files"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-files-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-files-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

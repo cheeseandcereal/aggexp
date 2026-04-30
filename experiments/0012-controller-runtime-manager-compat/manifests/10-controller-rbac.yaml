@@ -1,0 +1,47 @@
+# RBAC for the controller service account.
+#
+# NOTE: copied intentionally from experiment 0007's model; we target
+# a separate ClusterRole/binding name so the two experiments can be
+# run side-by-side in a single kind cluster without colliding.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aggexp-file-controller
+  namespace: aggexp-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-file-controller
+rules:
+  # Full CRUD on files.aggexp.io so the controller can GET, LIST, WATCH,
+  # PATCH (SSA), UPDATE (finalizer / ownerRefs), DELETE.
+  - apiGroups: ["aggexp.io"]
+    resources: ["files"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The controller creates a parent ConfigMap in aggexp-system and
+  # sets ownerReferences pointing at it. Bare namespace-scoped rule.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Leader election with leases.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # controller-runtime emits events under the lease resource; allow.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-file-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-file-controller
+subjects:
+  - kind: ServiceAccount
+    name: aggexp-file-controller
+    namespace: aggexp-system
