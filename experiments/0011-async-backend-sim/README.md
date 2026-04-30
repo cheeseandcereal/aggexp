@@ -96,7 +96,9 @@ Tear down with `kind delete cluster --name aggexp-async`.
 
 ## Status
 
-in-progress
+complete
+
+<!-- See FINDINGS/0011-async-backend-sim.md for results. -->
 
 ## Decisions made
 
