@@ -59,7 +59,7 @@ populated `metadata.managedFields` after SSA, clean CRUD + watch.
 
 ## Status
 
-in-progress
+complete
 
 <!-- See FINDINGS/0019-krm-polyglot-backend.md for results. -->
 

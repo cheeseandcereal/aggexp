@@ -18,7 +18,7 @@ provide the evidence.
 
 ## Current state
 
-Informed by eighteen experiments:
+Informed by nineteen experiments:
 
 - `FINDINGS/0001-raw-http-aggregation` — hand-rolled Go stdlib probe.
 - `FINDINGS/0002-hello-aggregated` — library-backed stateless AA with
@@ -68,6 +68,13 @@ Informed by eighteen experiments:
   SSA fails loudly (typed-converter) rather than silently
   (managedFields vanish). Backend-side S3 translation is
   essentially the same size as the linked Go version.
+- `FINDINGS/0019-krm-polyglot-backend` — 0017's backend-note
+  re-implemented in Python behind an unchanged component-server
+  image. Full CRUD + watch + rich explain + SSA parity; the
+  component can't distinguish the backend's language. Python is
+  ~30% shorter on semantic LOC; kubectl get latency is
+  indistinguishable from Go. The JSON-bytes payload decision
+  from 0013's proto is load-bearing for this portability.
 
 MVP-lab and MVP-example (GitHub repos end-to-end) are both complete;
 see `FINDINGS/example-e1-github-repos.md`.
@@ -521,6 +528,20 @@ schema:
   requires a typed scheme) or rich per-field `kubectl explain`.
   This is the line between wire-protocol-level features (portable
   to unstructured) and library-typed-model features (aren't).
+- **Backend implementation language is orthogonal** [`0019`].
+  The component server's ignorance of the resource extends to
+  ignorance of the backend's language. A Python backend behind an
+  unchanged Go component-server image serves Notes with
+  indistinguishable user-facing behavior — CRUD, watch, rich
+  explain, SSA (conflict detection + force-conflicts included).
+  The 0013 decision to put JSON bytes in the proto payload
+  (rather than per-resource protobuf messages) is what makes
+  this hold: JSON is ambient in every language and imports no
+  Go-specific codegen assumptions. Python backend is ~30%
+  shorter than the Go equivalent (254 vs 374 semantic lines);
+  single-caller `kubectl get` latency is indistinguishable (the
+  aggregation-layer hop dominates). Image size is the real cost
+  (159 MB python vs 12.3 MB distroless Go).
 
 Untested shape-boundaries: backends with inconsistent schema,
 without stable names, without list operations, without deletion
@@ -605,7 +626,7 @@ Still unmeasured:
 
 ## Process observations
 
-Seven observations after eighteen experiments and one substrate
+Seven observations after nineteen experiments and one substrate
 promotion:
 
 1. **Findings proportional to signal** holds. Dense experiments
