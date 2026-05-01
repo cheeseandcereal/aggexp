@@ -18,7 +18,7 @@ provide the evidence.
 
 ## Current state
 
-Informed by twenty-seven experiments and two substrate promotions:
+Informed by thirty experiments and three substrate promotions:
 
 - `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0021-runtime-component-parity`
   — see earlier listing.
@@ -88,7 +88,20 @@ Informed by twenty-seven experiments and two substrate promotions:
   replacement. Surfaces a contract boundary: middleware
   mutations on fields the backend's typed model doesn't preserve
   are silently dropped by its JSON unmarshal.
-- `FINDINGS/0031-runtime-component-v2-parity` — first
+- `FINDINGS/0030-runtime-component-v2-promotion` — substrate
+  promotion consolidating 0022-0029 commitments into
+  `runtime/component/v2/` (11 sub-packages, ~4.5k hand-written
+  Go + ~1.6k tests, v1 frozen alongside). Five commitments
+  landed fully: `#/definitions/` refs, unconditional
+  initial-events-end BOOKMARK, unified RV authority in the
+  component path, dual gRPC/HTTP-SSE transport, MetadataStore
+  + GC + declarative admission as substrate primitives. Two
+  sub-commitments deferred as explicit known gaps: per-group
+  V3 OpenAPI endpoint refresh on InstallAPIGroup, and SSA
+  typed-converter rebuild — so SSA and `kubectl explain`
+  degrade for dynamically-installed groups only (static-
+  install mode retains full v1 parity).
+- `FINDINGS/0031-runtime-component-v2-parity` —
   post-promotion consumer of `runtime/component/v2/`. One
   multiplex middleware process hosts two APIs
   (`widgets.aggexp.io/v1` over HTTP/SSE with push watch;
@@ -840,7 +853,7 @@ Still unmeasured:
 
 ## Process observations
 
-Nine observations after twenty-six experiments and two substrate
+Ten observations after thirty experiments and three substrate
 promotions:
 
 1. **Findings proportional to signal** holds. Dense experiments
@@ -926,7 +939,27 @@ promotions:
    merge, both additive). Phased parallel dispatch is now the
    default pattern; one-shot all-parallel is reserved for cases
    where experiments have genuinely no cross-dependencies.
+10. **The arc's Phase 3 (substrate promotion + parity) was
+    serial by necessity and worked cleanly.** 0030 created
+    `runtime/component/v2/` from five FINDINGS commitments as
+    a single sub-agent task authorized explicitly by the user
+    per AGENTS.md. It took one dispatch, produced tests +
+    doc.go for 11 sub-packages, explicitly scope-cut two
+    sub-commitments (V3 endpoint refresh, SSA typed-converter
+    rebuild on dynamic install) with user pre-approval, and
+    updated ARCHITECTURE.md. 0031 then ran as a normal
+    parallel-class experiment consuming v2, confirmed the
+    deferred known gaps behaved as predicted (not as surprises),
+    and surfaced six concrete v2.1 rough edges from the
+    consumer perspective. The two-step (promote, then parity
+    probe) mirrors the 0021 pattern for the v1 substrate and
+    remains the recommended shape for future substrate
+    promotions. Total arc wallclock: eleven sub-agent dispatches
+    across four phases, ten experiments + one promotion.
 
-The ethos itself needs no changes yet. If a pattern emerges of
-experiments going longer than they need to, or of SYNTHESIS
-falling out of sync with FINDINGS, revisit.
+The ethos itself needs no changes yet. The stateful-middleware
+arc completed fully; MVP-lab and MVP-example commitments are
+both intact; substrate has three generations with v1 and v2
+coexisting. If a pattern emerges of experiments going longer
+than they need to, or of SYNTHESIS falling out of sync with
+FINDINGS, revisit.
