@@ -282,6 +282,31 @@ admission layers are indistinguishable — which is architecturally
 desirable: every retry loop in controller-runtime / ArgoCD /
 custom controllers already handles this one shape.
 
+**Dynamic API-group installation works, with two library-layer
+wire-protocol degradations** [`0027`]. A multiplex middleware can
+call `genericapiserver.GenericAPIServer.InstallAPIGroup` *after*
+`PrepareRun` + `RunWithContext` have started serving. Go-restful's
+internal routing, `/apis` discovery, and the aggregator's OpenAPI
+fetch all accept post-start additions cleanly. One trap and two
+degradations: (1) `DefaultOpenAPIV3Config` pre-materializes its
+`Definitions` map at construction, so a live `GetDefinitions`
+closure looks dead unless the substrate nils the cache before
+`PrepareRun` (a ~20-minute-debug consequent of the 1.32 kube-
+openapi shape; future releases may not materialize up-front). (2)
+`kubectl explain <kind>` returns 404 on
+`/openapi/v3/apis/<group>/<version>` for dynamically-installed
+groups because `routes.OpenAPI.InstallV3` walks
+`RegisteredWebServices()` once at PrepareRun and freezes the
+per-group endpoint map. (3) SSA fails for dynamically-installed
+groups because `managedfields.NewTypeConverter`'s schema map,
+rebuilt per install, doesn't surface `ObjectMeta` under the
+reference key SSA expects. Both (2) and (3) are "apiserver
+substrate treats groups as a build-time concept" — fixable by
+refreshing V3 endpoints and the SSA typed-converter on each
+`InstallAPIGroup`. Queued as 0030 substrate fixes. CRUD + list +
+watch + table rendering work cleanly for every dynamically-added
+group.
+
 Open questions:
 
 - `WatchListClient` (1.32 client-go default-on, server default-off)
@@ -792,14 +817,14 @@ Still unmeasured:
 
 ## Process observations
 
-Eight observations after twenty-one experiments and two substrate
+Nine observations after twenty-six experiments and two substrate
 promotions:
 
 1. **Findings proportional to signal** holds. Dense experiments
    (0001, 0002, 0003, 0006, 0008, 0009, 0010, 0011, 0013, 0015,
-   0016, 0017, 0018, 0019, 0020) produced long FINDINGS; lean
-   ones (0005, 0007, 0012, 0014, 0021) produced tighter ones.
-   Agents have not been padding.
+   0016, 0017, 0018, 0019, 0020, 0024, 0027) produced long
+   FINDINGS; lean ones (0005, 0007, 0012, 0014, 0021, 0022) produced
+   tighter ones. Agents have not been padding.
 2. **Parallel agents on the same kind cluster clobbered each
    other's state** during the 0005/0008 arcs. Each agent created
    its own `aggexp-<slug>` cluster after the first collision.
@@ -863,6 +888,21 @@ promotions:
    0013's findings, 0018's use of 0013+0017, 0019's use of
    0017, and 0021's use of 0013+0017+0018. Dispatching all 12
    at once would have prevented this feedback loop.
+9. **A second arc (stateful-middleware-refinement, 0022-0029)
+   reinforced the wave pattern.** Phase 0 (design-commit as Go
+   package, 0022), Phase 1a (one sequential experiment to pick a
+   track, 0023), Phase 1b (three parallel experiments building on
+   the chosen track, 0024/0025/0026), Phase 2 (three more parallel
+   experiments building on Phase 1b, 0027/0028/0029). Each phase's
+   SYNTHESIS rewrite informed the next phase's sub-agents. Phase 2
+   specifically benefited: 0027 reused 0024's metadata CRD +
+   0023's Track B synthesizer + 0026's HTTP backend, 0028 forked
+   the 0024 middleware, 0029 built on 0020's admission wire shape.
+   Merge conflicts at phase boundaries were trivially resolved
+   (two bullet-list collisions in SYNTHESIS + EXPERIMENTS per
+   merge, both additive). Phased parallel dispatch is now the
+   default pattern; one-shot all-parallel is reserved for cases
+   where experiments have genuinely no cross-dependencies.
 
 The ethos itself needs no changes yet. If a pattern emerges of
 experiments going longer than they need to, or of SYNTHESIS
