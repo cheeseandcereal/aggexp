@@ -174,9 +174,9 @@ kubectl get apiservices | grep aggexp || echo "no orphans"
 
 ## Status
 
-in-progress
+complete
 
-<!-- valid values: in-progress, complete, abandoned -->
+<!-- See FINDINGS/0027-multiplex-middleware-server.md for the full write-up. -->
 
 ## Decisions made
 
@@ -235,6 +235,20 @@ in-progress
   — same serving cert for all AAs from this middleware. Kube
   Aggregation supports per-APIService CA, but we don't need per-
   group isolation.
+- **Nil-out pre-materialized OpenAPI `Definitions` cache at
+  startup.** `genericapiserver.DefaultOpenAPIV3Config` eagerly
+  materializes the `Definitions` map from `GetDefinitions` at
+  construction time. Every subsequent
+  `BuildOpenAPIDefinitionsForResources` inside `InstallAPIGroup`
+  checks `if Definitions != nil` and bypasses the callback. For the
+  multiplex's dynamic reconcile case this means new AAs' item
+  schemas are never consulted and install fails with `cannot find
+  model definition for .../scheme.Object`. Fix: immediately after
+  `runtime/server.Config()` returns, we set
+  `cfg.OpenAPIV3Config.Definitions = nil` and
+  `cfg.OpenAPIConfig.Definitions = nil` so the closure is invoked
+  every install. The cost is an extra full-map allocation per
+  install; negligible at 1-100 AAs.
 
 ## Prerequisites
 
