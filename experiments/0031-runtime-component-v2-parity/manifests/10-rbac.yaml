@@ -1,0 +1,67 @@
+# Host-cluster RBAC for the multiplex middleware.
+#
+# The aggexp ServiceAccount (defined in deploy/manifests/10-serviceaccount.yaml)
+# needs to:
+#   - watch/patch APIDefinitions (its own config CRD)
+#   - create/update/delete APIServices (it registers one per AA dynamically)
+#   - CRUD ResourceMetadata (the 0024 metastore)
+#   - create the above CRDs once at startup (ensureCRD post-start hook)
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: aggexp-0031-host }
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["apidefinitions", "apidefinitions/status"]
+    verbs: ["get", "list", "watch", "patch", "update", "create", "delete"]
+  - apiGroups: ["apiregistration.k8s.io"]
+    resources: ["apiservices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["aggexpmeta.aggexp.io"]
+    resources: ["resourcemetadatas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: aggexp-0031-host }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-0031-host
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+# Client-side RBAC: authenticated users can do anything to the demo
+# API groups. We pre-grant widgets + gadgets; a real deployment would
+# generate ClusterRoles per-APIDefinition via some operator glue.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: aggexp-0031-clients }
+rules:
+  - apiGroups: ["widgets.aggexp.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["gadgets.aggexp.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  # let callers inspect the APIDefinition objects too
+  - apiGroups: ["aggexp.io"]
+    resources: ["apidefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: aggexp-0031-clients }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-0031-clients
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

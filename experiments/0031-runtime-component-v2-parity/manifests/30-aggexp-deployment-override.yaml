@@ -1,0 +1,65 @@
+# Override the base aggexp Deployment to use the v2-parity image and
+# feed it the multiplex flags. The base Service + TLS secret from
+# deploy/manifests/ are reused unchanged.
+#
+# terminationGracePeriodSeconds is intentionally long so PreShutdown
+# has time to sweep every APIService we registered.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+  labels: { app: aggexp }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector: { matchLabels: { app: aggexp } }
+  template:
+    metadata: { labels: { app: aggexp } }
+    spec:
+      serviceAccountName: aggexp
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: aggexp
+          image: ${AGGEXP_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/etc/aggexp/certs/tls.crt
+            - --tls-private-key-file=/etc/aggexp/certs/tls.key
+            - --bind-address=0.0.0.0
+            - --secure-port=8443
+            - --enable-priority-and-fairness=false
+            - --ca-path=/etc/aggexp/certs/ca.crt
+            - --service-name=aggexp
+            - --service-namespace=aggexp-system
+            - --shutdown-grace=20s
+            # GC reconciler targets the widgets backend
+            - --gc-group=widgets.aggexp.io
+            - --gc-resource=widgets
+            - --gc-backend-address=http://widget-backend.aggexp-system.svc:8080
+            - --gc-interval=30s
+            - --gc-min-age=10s
+            - --v=2
+          ports: [{ name: https, containerPort: 8443 }]
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/aggexp/certs
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8443, scheme: HTTPS }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /livez, port: 8443, scheme: HTTPS }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: aggexp-serving-cert
+            items:
+              - { key: tls.crt, path: tls.crt }
+              - { key: tls.key, path: tls.key }
+              - { key: ca.crt,  path: ca.crt }

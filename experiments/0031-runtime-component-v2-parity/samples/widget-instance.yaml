@@ -1,0 +1,9 @@
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: sample-widget
+  namespace: default
+spec:
+  title: "A demo widget"
+  color: "blue"
+  size: 42

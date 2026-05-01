@@ -1,0 +1,172 @@
+
+### v2 parity sweep @ 2026-05-01T05:24:02Z against kind-aggexp-0031
+
+
+### 1. discovery — both APIs visible
+
+$ kubectl api-resources --api-group=widgets.aggexp.io
+NAME      SHORTNAMES   APIVERSION             NAMESPACED   KIND
+widgets                widgets.aggexp.io/v1   true         Widget
+
+$ kubectl api-resources --api-group=gadgets.aggexp.io
+NAME      SHORTNAMES   APIVERSION             NAMESPACED   KIND
+gadgets                gadgets.aggexp.io/v1   true         Gadget
+
+
+### 2. APIDefinitions Ready
+
+$ kubectl get apidefinitions
+NAME                GROUP               VERSION   KIND     READY   AGE
+gadgets.aggexp.io   gadgets.aggexp.io   v1        Gadget   True    3m35s
+widgets.aggexp.io   widgets.aggexp.io   v1        Widget   True    3m35s
+
+
+### 3. APIServices Available
+
+$ kubectl get apiservices v1.widgets.aggexp.io v1.gadgets.aggexp.io
+NAME                   SERVICE                AVAILABLE   AGE
+v1.widgets.aggexp.io   aggexp-system/aggexp   True        70s
+v1.gadgets.aggexp.io   aggexp-system/aggexp   True        70s
+
+
+### 4. create — widget (HTTP backend, push watch)
+
+$ kubectl apply -f experiments/0031-runtime-component-v2-parity/samples/widget-instance.yaml
+widget.widgets.aggexp.io/sample-widget created
+
+
+### 5. create — gadget (gRPC backend, poll watch)
+
+$ kubectl apply -f experiments/0031-runtime-component-v2-parity/samples/gadget-instance.yaml
+gadget.gadgets.aggexp.io/sample-gadget created
+
+
+### 6. kubectl get — table rendering on both
+
+$ kubectl get widgets
+NAME            TITLE           COLOR   SIZE   AGE
+sample-widget   A demo widget   blue    42     1s
+
+$ kubectl get gadgets
+NAME            BRAND   HP    AGE
+sample-gadget   Acme    300   0s
+
+
+### 7. kubectl get -o yaml — stitched metadata visible (uid, resourceVersion)
+
+$ kubectl get widget sample-widget -o yaml
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"widgets.aggexp.io/v1","kind":"Widget","metadata":{"annotations":{},"name":"sample-widget","namespace":"default"},"spec":{"color":"blue","size":42,"title":"A demo widget"}}
+  creationTimestamp: "2026-05-01T05:24:02Z"
+  name: sample-widget
+  namespace: default
+  resourceVersion: "1088"
+  uid: f5f6ab93-f12b-41c6-abe8-b797dbe2a5e6
+spec:
+  color: blue
+  size: 42
+  title: A demo widget
+status:
+  updatedAt: "2026-05-01T05:24:03Z"
+
+$ kubectl get gadget sample-gadget -o yaml
+apiVersion: gadgets.aggexp.io/v1
+kind: Gadget
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"gadgets.aggexp.io/v1","kind":"Gadget","metadata":{"annotations":{},"name":"sample-gadget","namespace":"default"},"spec":{"brand":"Acme","horsepower":300}}
+  creationTimestamp: "2026-05-01T05:24:03Z"
+  name: sample-gadget
+  namespace: default
+  resourceVersion: "1089"
+  uid: 3ce480ee-d9db-4a34-bf9f-cc06a8cdcef9
+spec:
+  brand: Acme
+  horsepower: 300
+status:
+  updatedAt: "2026-05-01T05:24:03Z"
+
+
+### 8. ResourceMetadata records written (0024 metastore)
+
+$ kubectl get resourcemetadatas
+NAME                                              GROUP               RESOURCE   NAMESPACE   NAME            AGE
+gadgets-aggexp-io.gadgets.default.sample-gadget   gadgets.aggexp.io   gadgets    default     sample-gadget   0s
+widgets-aggexp-io.widgets.default.sample-widget   widgets.aggexp.io   widgets    default     sample-widget   0s
+
+
+### 9. watch streams — widget (push), gadget (poll)
+
+NAME            TITLE           COLOR   SIZE   AGE
+sample-widget   A demo widget   blue    42     2s
+NAME            BRAND   HP    AGE
+sample-gadget   Acme    300   1s
+Error from server (Expired): too old resource version: 1088 (current 7)
+Error from server (Expired): too old resource version: 1089 (current 2)
+widget.widgets.aggexp.io/sample-widget annotated
+gadget.gadgets.aggexp.io/sample-gadget annotated
+
+### 10. declarative admission — denial path (widgets color=black)
+
+$ kubectl apply -f /tmp/widget-black.yaml
+The widgets "forbidden-widget" is invalid: spec.color: Invalid value: "forbidden-widget": spec.color "black" is not permitted (exercises declarative admission from 0029)
+
+
+### 11. declarative admission — mutation default (title defaults to 'Untitled')
+
+$ kubectl apply -f /tmp/widget-notitle.yaml
+widget.widgets.aggexp.io/titleless-widget created
+
+$ kubectl get widget titleless-widget -o jsonpath={.spec.title}
+Untitled
+
+
+### 12. kubectl explain — known gap in dynamic install mode
+
+$ kubectl explain widget
+error: couldn't find resource for "widgets.aggexp.io/v1, Resource=widgets"
+
+$ kubectl explain widget.spec
+error: couldn't find resource for "widgets.aggexp.io/v1, Resource=widgets"
+
+
+### 13. kubectl apply --server-side — known gap in dynamic install mode
+
+$ kubectl apply --server-side --field-manager=alice -f experiments/0031-runtime-component-v2-parity/samples/widget-instance.yaml
+Error from server: failed to create manager for existing fields: failed to convert new object (default/sample-widget; widgets.aggexp.io/v1, Kind=Widget) to smd typed: .metadata: schema error: no type found matching: io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta
+
+
+### 14. delete
+
+$ kubectl delete widget sample-widget --wait=false
+widget.widgets.aggexp.io "sample-widget" deleted from default namespace
+
+$ kubectl delete widget titleless-widget --wait=false
+widget.widgets.aggexp.io "titleless-widget" deleted from default namespace
+
+$ kubectl delete gadget sample-gadget --wait=false
+gadget.gadgets.aggexp.io "sample-gadget" deleted from default namespace
+
+
+### 15. GC probes — wait for sweep to run, then check no orphan Records remain
+
+$ kubectl get resourcemetadatas
+No resources found
+
+
+### 16. cross-API isolation — deleting widgets didn't affect gadgets API
+
+$ kubectl api-resources --api-group=gadgets.aggexp.io
+NAME      SHORTNAMES   APIVERSION             NAMESPACED   KIND
+gadgets                gadgets.aggexp.io/v1   true         Gadget
+
+$ kubectl get apiservices v1.gadgets.aggexp.io -o=jsonpath={.status.conditions[?(@.type=="Available")].status}
+True
+
+
+log written to experiments/0031-runtime-component-v2-parity/hack/scenarios.log

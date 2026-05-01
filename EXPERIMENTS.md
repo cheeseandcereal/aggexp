@@ -139,6 +139,13 @@ promotion.
 - `0030-runtime-component-v2-promotion` — substrate promotion. New
   `runtime/component/v2/` package embodying the arc's commitments.
 - `0031-runtime-component-v2-parity` — first post-promotion consumer.
+  Two APIs on one v2/multiplex middleware; HTTP/SSE + gRPC
+  transports; MetadataStore + GC + declarative admission all
+  wired; known 0030 gaps (SSA + explain under dynamic install)
+  confirmed as expected boundary, not surprise breakage. No
+  substrate patches needed. 277 LOC consumer; scenario sweep
+  passed. Status: complete. See
+  `FINDINGS/0031-runtime-component-v2-parity.md`.
 
 ---
 

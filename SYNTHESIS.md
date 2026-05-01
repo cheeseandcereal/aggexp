@@ -88,32 +88,55 @@ Informed by twenty-seven experiments and two substrate promotions:
   replacement. Surfaces a contract boundary: middleware
   mutations on fields the backend's typed model doesn't preserve
   are silently dropped by its JSON unmarshal.
+- `FINDINGS/0031-runtime-component-v2-parity` — first
+  post-promotion consumer of `runtime/component/v2/`. One
+  multiplex middleware process hosts two APIs
+  (`widgets.aggexp.io/v1` over HTTP/SSE with push watch;
+  `gadgets.aggexp.io/v1` over gRPC with poll watch), with
+  shared MetadataStore, one GC reconciler, declarative
+  admission on widgets, and PreShutdown APIService sweep. 277
+  LOC consumer wiring. Zero substrate patches needed. The two
+  FINDINGS/0030 known gaps (SSA + explain on dynamically-
+  installed groups) confirmed as expected boundary. Several
+  consumer-facing rough edges worth feeding back into a
+  hypothetical v2.1: JSONPath leading-dot silent no-op in
+  admission, `OpenAPIV3Config.Definitions=nil` is a load-
+  bearing consumer obligation rather than a substrate default,
+  GC is per-(group, resource) rather than multiplex-aware,
+  embedded CRD YAMLs lack apply helpers. Substrate held on
+  every load-bearing axis (fifth storage axis, unified RV,
+  initial-events-end BOOKMARK, transport swap, declarative
+  admission) under compositional load.
 
 MVP-lab and MVP-example complete.
 
-Substrate `runtime/` has two promotions:
+Substrate `runtime/` has three promotions:
 1. `runtime/{server, group, authz, storage}` — the library pattern
    (consumers: 0002, 0004, 0007, 0009, 0010, 0011).
 2. `runtime/component/{proto, scheme, openapi, grpcbackend}` — the
    component-server pattern (consumers: 0013, 0017, 0018, 0019,
    0020, 0021).
+3. `runtime/component/v2/{proto, scheme, openapi, grpcbackend,
+   httpbackend, metadatastore, gc, admission, multiplex, watch}` —
+   consolidates the stateful-middleware arc (0022-0029) plus the
+   multiplex shape (0027). First post-promotion consumer: 0031.
 
-A third promotion (`runtime/component/v2/`) is queued for 0030
-incorporating the stateful-middleware arc's findings. Specific
-substrate-fixes that must land in v2:
-- `componentopenapi.WrapAsList` must emit `#/definitions/...`
-  refs (per 0024 — or ArgoCD clients break).
+The third promotion's specific substrate-fixes (listed at
+promotion time, for historical reference) — status after 0031:
+- `componentopenapi.WrapAsList` emits `#/definitions/...` refs
+  (per 0024). **Landed and in use by 0031.**
 - Middleware unconditionally emits the `initial-events-end`
   BOOKMARK on the Watch handler tail-of-prefix (per 0025).
+  **Landed; 0031 watch streams fire in <1s.**
 - Resource-version authority unified — one monotonic counter
   per resource, source of truth in middleware (per 0025).
+  **Landed.**
 - Dynamic-install friendly OpenAPI (per 0027) — two sub-fixes:
-  `runtime/server.Options` must surface a way to opt out of
-  `DefaultOpenAPIV3Config`'s eager `Definitions` materialization
-  (or the substrate should construct its own config with a live
-  `GetDefinitions` closure); `InstallAPIGroup` in the substrate's
-  multiplex mode must refresh the V3 per-group endpoints and the
-  SSA typed-converter for the newly-added group.
+  cache-defeat on `DefaultOpenAPIV3Config.Definitions` **landed
+  (consumer responsibility: nil the pre-materialized map after
+  `Config()`)**, per-group V3 endpoint refresh + SSA typed-
+  converter rebuild **deferred as known gap** (0031 confirmed
+  the boundary).
 
 See `ARCHITECTURE.md`.
 

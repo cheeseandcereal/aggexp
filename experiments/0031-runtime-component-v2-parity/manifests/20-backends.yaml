@@ -1,0 +1,63 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: widget-backend
+  namespace: aggexp-system
+  labels: { app: widget-backend }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: widget-backend } }
+  template:
+    metadata: { labels: { app: widget-backend } }
+    spec:
+      containers:
+        - name: backend
+          image: ${WIDGET_BACKEND_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: widget-backend, namespace: aggexp-system }
+spec:
+  selector: { app: widget-backend }
+  ports: [{ name: http, port: 8080, targetPort: 8080, protocol: TCP }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gadget-backend
+  namespace: aggexp-system
+  labels: { app: gadget-backend }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: gadget-backend } }
+  template:
+    metadata: { labels: { app: gadget-backend } }
+    spec:
+      containers:
+        - name: backend
+          image: ${GADGET_BACKEND_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: grpc, containerPort: 8081 }]
+          # gRPC doesn't have an HTTP healthz; rely on TCP liveness.
+          readinessProbe:
+            tcpSocket: { port: 8081 }
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: gadget-backend, namespace: aggexp-system }
+spec:
+  selector: { app: gadget-backend }
+  ports: [{ name: grpc, port: 8081, targetPort: 8081, protocol: TCP }]
