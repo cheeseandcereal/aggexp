@@ -1,0 +1,8 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: hello
+  namespace: default
+spec:
+  title: Hello HTTP
+  body: This note is served via the 0026 HTTP/JSON + SSE backend transport.
