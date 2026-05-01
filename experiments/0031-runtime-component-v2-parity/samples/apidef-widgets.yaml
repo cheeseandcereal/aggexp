@@ -1,0 +1,31 @@
+apiVersion: aggexp.io/v1
+kind: APIDefinition
+metadata:
+  name: widgets.aggexp.io
+spec:
+  group: widgets.aggexp.io
+  version: v1
+  kind: Widget
+  plural: widgets
+  singular: widget
+  scope: Namespaced
+  schemaSource: backendJSONSchema
+  backend:
+    transport: http
+    address: http://widget-backend.aggexp-system.svc:8080
+  watchCapability: push
+  admission:
+    mutations:
+      # Default spec.title to "Untitled" on CREATE when absent.
+      # Exercises the 0029 JSONPath mutation path.
+      - jsonPath: .spec.title
+        op: default
+        value: "Untitled"
+        operations: ["CREATE"]
+    validations:
+      # Forbid color=black. Exercises the 0029 CEL validation path
+      # with a denial kubectl renders as a loud 422.
+      - expression: 'object.spec == null || !has(object.spec.color) || object.spec.color != "black"'
+        message: 'spec.color "black" is not permitted (exercises declarative admission from 0029)'
+        fieldPath: .spec.color
+        operations: ["CREATE", "UPDATE"]

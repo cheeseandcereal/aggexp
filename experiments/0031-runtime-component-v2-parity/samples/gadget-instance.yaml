@@ -1,0 +1,8 @@
+apiVersion: gadgets.aggexp.io/v1
+kind: Gadget
+metadata:
+  name: sample-gadget
+  namespace: default
+spec:
+  brand: "Acme"
+  horsepower: 300

@@ -1,0 +1,17 @@
+apiVersion: aggexp.io/v1
+kind: APIDefinition
+metadata:
+  name: gadgets.aggexp.io
+spec:
+  group: gadgets.aggexp.io
+  version: v1
+  kind: Gadget
+  plural: gadgets
+  singular: gadget
+  scope: Namespaced
+  schemaSource: backendJSONSchema
+  backend:
+    transport: grpc
+    address: gadget-backend.aggexp-system.svc:8081
+  watchCapability: poll
+  # No declarative admission on gadgets — cross-API isolation check.
