@@ -1,0 +1,56 @@
+apiVersion: aggexpapidefinition.aggexp.io/v1
+kind: APIDefinition
+metadata:
+  name: notes-aggexp-io
+spec:
+  group: aggexp.io
+  version: v1
+  resource: notes
+  kind: Note
+  singular: note
+  namespaced: true
+  backendAddress: note-backend.aggexp-system.svc:9090
+  shortNames:
+    - nt
+  tableColumns:
+    - name: Name
+      type: string
+      description: Name of the note.
+      rowField: .metadata.name
+    - name: Title
+      type: string
+      description: Note title.
+      rowField: .spec.title
+    - name: Age
+      type: string
+      description: Time since creation.
+      rowField: .metadata.creationTimestamp
+  # Full Kubernetes OpenAPI v3 JSON for notes.aggexp.io/v1 Note.
+  # The backend never sees this; it lives in the host cluster.
+  openapiV3: |
+    {
+      "type": "object",
+      "description": "Note is a free-form piece of text served by Track C of experiment 0023. Schema lives in the APIDefinition CRD, not in the backend.",
+      "properties": {
+        "apiVersion": {"type": "string", "description": "APIVersion defines the versioned schema of this representation of an object."},
+        "kind": {"type": "string", "description": "Kind is a string value representing the REST resource this object represents."},
+        "metadata": {"description": "Standard object metadata.", "$ref": "#/components/schemas/io.k8s.apimachinery.pkg.apis.meta.v1.ObjectMeta"},
+        "spec": {
+          "type": "object",
+          "description": "NoteSpec carries the caller-supplied fields.",
+          "required": ["title"],
+          "properties": {
+            "title": {"type": "string", "minLength": 3, "maxLength": 64, "description": "Short display title. Required, 3-64 characters."},
+            "body": {"type": "string", "description": "Free-form body text. Optional."}
+          }
+        },
+        "status": {
+          "type": "object",
+          "description": "NoteStatus is server-assigned.",
+          "properties": {
+            "updatedAt": {"type": "string", "format": "date-time", "description": "Server-assigned last-update time (RFC 3339)."}
+          }
+        }
+      },
+      "x-kubernetes-group-version-kind": [{"group": "aggexp.io", "version": "v1", "kind": "Note"}]
+    }

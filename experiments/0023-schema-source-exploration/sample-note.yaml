@@ -1,0 +1,8 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: hello
+  namespace: default
+spec:
+  title: "Hello from 0023"
+  body: "This is a Note served under whichever schema source is deployed."
