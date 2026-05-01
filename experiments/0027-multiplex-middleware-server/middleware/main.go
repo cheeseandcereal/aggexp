@@ -152,6 +152,7 @@ func runMultiplex(o *options, ctx context.Context) error {
 		for k, v := range mx.currentOpenAPIDefs() {
 			defs[k] = v
 		}
+		klog.V(2).Infof("multiplex: openAPIFunc called; total defs=%d (aa-contributed=%d)", len(defs), len(mx.currentOpenAPIDefs()))
 		return defs
 	}
 
@@ -164,6 +165,18 @@ func runMultiplex(o *options, ctx context.Context) error {
 	cfgRecommended, err := o.Config(in)
 	if err != nil {
 		return err
+	}
+	// CRITICAL: runtime/server.Config → DefaultOpenAPIV3Config
+	// pre-materializes a Definitions map by calling GetDefinitions
+	// once. Subsequent BuildOpenAPIDefinitionsForResources checks
+	// `if Definitions != nil` and skips re-invoking GetDefinitions.
+	// For dynamic InstallAPIGroup at reconcile time we MUST force
+	// GetDefinitions to be called every install — nil the cache.
+	if cfgRecommended.OpenAPIV3Config != nil {
+		cfgRecommended.OpenAPIV3Config.Definitions = nil
+	}
+	if cfgRecommended.OpenAPIConfig != nil {
+		cfgRecommended.OpenAPIConfig.Definitions = nil
 	}
 	completed := cfgRecommended.Complete()
 	server, err := completed.New("aggexp-multiplex-0027", genericapiserver.NewEmptyDelegate())
@@ -268,6 +281,7 @@ func (m *multiplex) currentOpenAPIDefs() map[string]common.OpenAPIDefinition {
 		out[i.openapiItemKey] = common.OpenAPIDefinition{Schema: i.itemSchema}
 		out[i.openapiListKey] = common.OpenAPIDefinition{Schema: i.listSchema}
 	}
+	klog.V(3).Infof("multiplex: currentOpenAPIDefs: %d AA-contributed defs", len(out))
 	return out
 }
 
@@ -425,7 +439,19 @@ func (m *multiplex) reconcileUpsert(ctx context.Context, u *unstructured.Unstruc
 		m.recordCondition(ctx, name, "Ready", "False", classifyReason(err), err.Error())
 		return err
 	}
+	// IMPORTANT: publish the new AA's OpenAPI defs BEFORE calling
+	// InstallAPIGroup, because the server's getOpenAPIModels call
+	// during install reads the (dynamically-refreshed) defs map
+	// and requires the item's canonical schema name to be present.
+	m.installedMu.Lock()
+	m.installed[key] = inst
+	m.installedMu.Unlock()
 	if err := m.installGroup(inst); err != nil {
+		// Roll back our defs publication on failure so stale
+		// entries don't pollute the OpenAPI for the working AAs.
+		m.installedMu.Lock()
+		delete(m.installed, key)
+		m.installedMu.Unlock()
 		if inst.rest != nil {
 			inst.rest.Shutdown()
 		}
@@ -436,10 +462,6 @@ func (m *multiplex) reconcileUpsert(ctx context.Context, u *unstructured.Unstruc
 		m.recordCondition(ctx, name, "Available", "False", "APIServiceError", err.Error())
 		return err
 	}
-
-	m.installedMu.Lock()
-	m.installed[key] = inst
-	m.installedMu.Unlock()
 
 	watchCtx, cancel := context.WithCancel(context.Background())
 	inst.cancelWatch = cancel
