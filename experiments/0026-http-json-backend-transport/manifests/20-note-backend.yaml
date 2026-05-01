@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: note-backend
+  namespace: aggexp-system
+  labels:
+    app: note-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: note-backend
+  template:
+    metadata:
+      labels:
+        app: note-backend
+    spec:
+      containers:
+        - name: note-backend
+          image: ${NOTE_BACKEND_HTTP_IMAGE}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: note-backend
+  namespace: aggexp-system
+spec:
+  selector:
+    app: note-backend
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

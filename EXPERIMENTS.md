@@ -82,8 +82,20 @@ promotion.
   substrate has a resourceVersion authority split — Get/List
   shows backend RVs, Watch shows middleware-counter RVs. Status:
   complete. See `FINDINGS/0025-push-backed-watch.md`.
-- `0026-http-json-backend-transport` — HTTP/JSON + SSE transport
-  alongside gRPC.
+- **`0026-http-json-backend-transport`** — HTTP/JSON + SSE transport
+  alongside gRPC. Same 6 kubectl scenarios pass; component supports
+  both transports via `--backend-transport=grpc|http` flag (no
+  rebuild). Perf identical at lab scale (67.9 ms mean `kubectl get`
+  on both). Backend-author LOC surprise: stdlib-only HTTP Go is
+  ~16% longer than the reference gRPC Go backend because grpc's
+  generated code hides routing + envelope-type + server-streaming
+  plumbing the HTTP shape has to write by hand. The real HTTP
+  wins are zero toolchain footprint (no protoc, no codegen),
+  curl-debuggability of the backend (raw JSON + real SSE
+  `data: {...}\n\n` on the wire), and ecosystem ubiquity for
+  non-Go languages. Recommendation: dual-support in 0030, with
+  HTTP as the preferred transport for new backends. Status:
+  complete. See `FINDINGS/0026-http-json-backend-transport.md`.
 - `0027-multiplex-middleware-server` — one middleware, many AAs.
   Reconciler watches `APIDefinition` CRDs, registers/deregisters
   APIServices dynamically. Status written back to CRD.
