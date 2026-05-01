@@ -1,0 +1,88 @@
+# Override the base aggexp Deployment to run the 0028 KRM component
+# server with metadata-store GC enabled, pointing at the backend-s3 service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggexp
+  template:
+    metadata:
+      labels:
+        app: aggexp
+    spec:
+      serviceAccountName: aggexp
+      containers:
+        - name: aggexp
+          image: ${AGGEXP_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/etc/aggexp/certs/tls.crt
+            - --tls-private-key-file=/etc/aggexp/certs/tls.key
+            - --bind-address=0.0.0.0
+            - --secure-port=8443
+            - --enable-priority-and-fairness=false
+            - --backend-addr=backend-s3.aggexp-system.svc:9090
+            - --backend-timeout=30s
+            # The 0028 demo runs GC on a very short cadence so the
+            # scenarios can observe its effect without waiting minutes.
+            # The default in code is 5 minutes; production would want
+            # something in that range.
+            - --gc-interval=2m
+            - --gc-min-age=20s
+            - --gc-debug-addr=0.0.0.0:8444
+            - --v=2
+          ports:
+            - name: https
+              containerPort: 8443
+            - name: gc-debug
+              containerPort: 8444
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/aggexp/certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: aggexp-serving-cert
+---
+# Separate Service exposing the unauthenticated GC debug endpoint so
+# it's accessible via port-forward without tunneling through the
+# aggregator layer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp-gc-debug
+  namespace: aggexp-system
+spec:
+  selector:
+    app: aggexp
+  ports:
+    - name: gc-debug
+      port: 8444
+      targetPort: 8444
+      protocol: TCP
