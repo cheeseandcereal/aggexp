@@ -383,7 +383,9 @@ func (r *REST) Update(
 	rec := recordFromLibraryObject(updated, r.refFor(ns, name))
 	// Preserve server-managed fields from the prior Record where
 	// the library can't touch them.
+	var priorRec *metastore.Record
 	if cur, _ := r.store.Get(ctx, rec.Ref); cur != nil {
+		priorRec = cur
 		if rec.UID == "" {
 			rec.UID = cur.UID
 		}
@@ -391,11 +393,57 @@ func (r *REST) Update(
 			rec.CreationTimestamp = cur.CreationTimestamp
 		}
 		// deletionTimestamp is immutable once set except via
-		// finalizer clearing (handled in Delete).
+		// finalizer clearing (handled below).
 		if cur.DeletionTimestamp != nil && rec.DeletionTimestamp == nil {
 			rec.DeletionTimestamp = cur.DeletionTimestamp
 		}
 	}
+	// If the current object carried a synthetic UID (because the
+	// backend object exists out-of-band with no Record yet), mint
+	// a real one now. "synthetic-" is our in-memory marker from
+	// stitch(); it must never land in persisted metadata.
+	if strings.HasPrefix(rec.UID, "synthetic-") || rec.UID == "" {
+		rec.UID = uuid.NewString()
+	}
+	if rec.CreationTimestamp.IsZero() {
+		rec.CreationTimestamp = metav1.NewTime(time.Now().UTC())
+	}
+
+	// Finalizer-clear trigger: if the prior record had a
+	// DeletionTimestamp + finalizers, and the update clears
+	// finalizers, finish the delete now. Matches the Kubernetes
+	// convention ("once deletionTimestamp is set and finalizers
+	// become empty, the object is removed").
+	if priorRec != nil && priorRec.DeletionTimestamp != nil &&
+		len(priorRec.Finalizers) > 0 && len(rec.Finalizers) == 0 {
+		klog.V(2).Infof("middleware:finalizer-cleared ref=%s -> completing delete", refLog(rec.Ref))
+		// Backend delete + metastore delete.
+		_, derr := r.client.Delete(ctx, &componentpb.DeleteRequest{
+			User:      userFromCtx(ctx),
+			Namespace: ns,
+			Name:      name,
+		})
+		if derr != nil {
+			if st, ok := grpcstatus.FromError(derr); !ok || st.Code() != codes.NotFound {
+				return nil, false, r.translateErr(derr, name)
+			}
+		}
+		if merr := r.store.Delete(ctx, rec.Ref); merr != nil {
+			return nil, false, apierrors.NewInternalError(merr)
+		}
+		// Return the "just about to vanish" stitched object with the
+		// cleared finalizer set and no trailing metadata.
+		bizJSON, err := businessJSON(updated)
+		if err == nil {
+			if stitched, err := r.stitch(bizJSON, nil, ns, name); err == nil {
+				r.publish(watch.Deleted, stitched)
+				return stitched, false, nil
+			}
+		}
+		r.publish(watch.Deleted, updated)
+		return updated, false, nil
+	}
+
 	klog.V(2).Infof("middleware:metastore:put (update) ref=%s uid=%s finalizers=%v", refLog(rec.Ref), rec.UID, rec.Finalizers)
 	storedRec, merr := r.store.Put(ctx, rec)
 	if merr != nil {
@@ -1004,7 +1052,7 @@ func durationShort(d time.Duration) string {
 func refLog(r metastore.ResourceRef) string {
 	ns := r.Namespace
 	if ns == "" {
-		ns = "_cluster_"
+		ns = "cluster"
 	}
 	return fmt.Sprintf("%s/%s/%s/%s", r.Group, r.Resource, ns, r.Name)
 }

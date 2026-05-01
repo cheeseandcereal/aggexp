@@ -97,11 +97,13 @@ complete
   in this experiment are cluster-scoped; same rule applies to
   namespaced resources (name encodes the namespace). Keeps the
   metadata store a single shared kind.
-- ResourceMetadata name format: `<group>.<resource>.<namespace>.<name>`
-  with `-` substituted for the literal `.` in a group, using DNS-1123
-  subdomain rules. For cluster-scoped resources the namespace segment
-  is the literal `_cluster_`. Hash fallback if the composed name
-  exceeds 253 chars.
+- ResourceMetadata name format: `<group-with-dashes>.<resource>.<namespace-or-cluster>.<name>`.
+  Dots in the group are replaced with `-` (so `aggexp.io` becomes
+  `aggexp-io`) to keep DNS-1123-subdomain label boundaries
+  predictable. The literal string `cluster` stands in for an empty
+  namespace on cluster-scoped resources. Hash fallback
+  (`rmeta-<hex24>`) if the composed name exceeds 253 chars or has
+  other DNS-1123 violations.
 - Stitch-on-read populates a metadata Record lazily: the first time
   the middleware sees a backend object with no metadata, it creates
   one with a fresh UID and initial resourceVersion. This keeps

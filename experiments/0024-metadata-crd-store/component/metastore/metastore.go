@@ -83,15 +83,18 @@ func New(dyn dynamic.Interface, fieldManager string) *Store {
 // RecordName computes the ResourceMetadata.metadata.name for a
 // given ResourceRef. Uses the deterministic form:
 //
-//	<group-with-dashes>.<resource>.<namespace-or-_cluster_>.<name>
+//	<group-with-dashes>.<resource>.<namespace-or-cluster>.<name>
+//
+// The literal string "cluster" stands in for an empty namespace
+// (cluster-scoped resources).
 //
 // If the result exceeds 253 chars (DNS-1123 subdomain limit) or
 // contains characters invalid for a Kubernetes name, a sha256-based
-// fallback is used: "rmeta-<hex12>".
+// fallback is used: "rmeta-<hex24>".
 func RecordName(ref ResourceRef) string {
 	ns := ref.Namespace
 	if ns == "" {
-		ns = "_cluster_"
+		ns = "cluster"
 	}
 	// Kubernetes name regex: DNS-1123 subdomain; `.` is allowed as
 	// a label separator but `/` and ':' are not. We replace group's
@@ -370,7 +373,7 @@ var ErrRefInvalid = errors.New("metastore: ResourceRef missing required fields")
 func refString(r ResourceRef) string {
 	ns := r.Namespace
 	if ns == "" {
-		ns = "_cluster_"
+		ns = "cluster"
 	}
 	return fmt.Sprintf("%s/%s/%s/%s", r.Group, r.Resource, ns, r.Name)
 }

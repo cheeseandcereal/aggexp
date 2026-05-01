@@ -110,7 +110,11 @@ func (o *options) run(ctx context.Context) error {
 	if parseErr != nil {
 		return fmt.Errorf("parse lifted OpenAPI: %w", parseErr)
 	}
-	listSchema := componentopenapi.WrapAsList(listGVK, bundle.ItemCanonicalName)
+	// Use our local WrapAsListV2Refs so list/item refs are
+	// "#/definitions/..." and survive /openapi/v2 aggregation for
+	// strict consumers like ArgoCD. See synthesis/synthesis.go
+	// package doc for the rationale.
+	listSchema := synthesis.WrapAsListV2Refs(listGVK, componentopenapi.FriendlyRef(bundle.ItemCanonicalName))
 
 	cols := make([]metav1.TableColumnDefinition, 0, len(resp.GetColumns()))
 	for _, c := range resp.GetColumns() {
