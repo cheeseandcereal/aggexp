@@ -1,22 +1,39 @@
 # Architecture
 
 This file describes the current architectural state of the
-**substrate** — the disciplined code under `runtime/` and `drivers/`.
-It is silent about individual experiments (those live under
-`experiments/` and are documented in their own READMEs) and silent
-about the broader problem space (that's `SYNTHESIS.md`'s job).
+**substrate** — the disciplined code under `runtime/` and
+`drivers/`. It is silent about individual experiments (those live
+under `experiments/` and are documented in their own READMEs) and
+silent about the broader problem space (that's `SYNTHESIS.md`'s
+job).
 
 This file is rewritten (not appended to) when the substrate's
 architecture actually shifts.
 
 ## Current state
 
-Two substrate promotions have landed. `runtime/` holds the original
-four packages plus a `runtime/component/` family extracted from the
-KRM component-server arc (experiments 0013 + 0017 + 0018). `drivers/`
-is still empty; no driver has been promoted because no two
-experiments have yet demanded an identically-shaped concrete
-backend.
+Three substrate promotions have landed.
+
+- **Promotion 1** (`runtime/{server, authz, storage, group}`) gave
+  experiments the library-mode path: a Go consumer links against
+  the substrate, implements `runtime/storage.Backend`, and runs an
+  etcd-less aggregated apiserver. Evidence: 0002, 0007, 0009, 0010,
+  0011.
+- **Promotion 2** (`runtime/component/{proto, scheme, openapi,
+  grpcbackend}` plus the top-level `runtime/component.Run`) gave
+  experiments the component-mode path: a generic component-server
+  binary handles the Kubernetes wire contract for any resource, and
+  the resource-specific code lives in a separate backend process
+  (possibly a different language) behind a gRPC service. Evidence:
+  0013, 0017, 0018, 0021.
+- **Promotion 3** (`runtime/component/v2/`) consolidates the
+  stateful-middleware-refinement arc (experiments 0022-0029). v2
+  lives alongside v1, not as a replacement; v1 is frozen for its
+  existing consumers. Evidence: 0022 (thesis), 0023 (schema source),
+  0024 (metadata CRD), 0025 (push watch), 0026 (HTTP transport),
+  0027 (multiplex), 0028 (GC), 0029 (declarative admission).
+
+`drivers/` remains empty; no driver has met the two-consumer bar.
 
 ### `runtime/` package tree
 
@@ -24,218 +41,263 @@ backend.
 runtime/
 ├── README.md                 — layout guide
 ├── server/                   — etcd-less Options + Config + Run
-│   ├── doc.go
-│   ├── options.go
-│   └── options_test.go
 ├── authz/                    — external-HTTP-policy Authorizer
-│   ├── doc.go
-│   ├── authorizer.go
-│   └── authorizer_test.go
 ├── storage/                  — Backend interface + rest.Storage adapter
-│   │                           (in-process library consumer path)
-│   ├── doc.go
-│   ├── backend.go
-│   ├── adapter.go
-│   ├── helpers.go
-│   └── adapter_test.go
+│                               (in-process library consumer path)
 ├── group/                    — API-group installer
-│   ├── doc.go
-│   ├── group.go
-│   └── group_test.go
 └── component/                — deployable component-server path
-                                (gRPC-backed rest.Storage; polyglot
-                                backends; resource-shape discovered
-                                at startup via the Backend service)
     ├── doc.go                — when to use component vs library
-    ├── api.go                — Options, NewOptions, AddFlags, Run
-    ├── api_test.go
-    ├── proto/                — gRPC protocol + committed bindings
-    │   ├── doc.go
-    │   ├── backend.proto
-    │   ├── backend.pb.go
-    │   └── backend_grpc.pb.go
-    ├── scheme/               — dyn.Object typed wrapper + dynamic
-    │   │                       Scheme builder (internal+external GV)
-    │   ├── doc.go
-    │   ├── object.go
-    │   ├── scheme.go
-    │   └── scheme_test.go
-    ├── openapi/              — backend-OpenAPI-into-defs-map helpers
-    │   │                       and committed openapi-gen output for
-    │   │                       meta/v1 + runtime + unstructured
-    │   ├── doc.go
-    │   ├── compose.go
-    │   ├── generated.go
-    │   └── compose_test.go
-    └── grpcbackend/          — rest.Storage adapter proxying to the
-        │                       Backend gRPC service
-        ├── doc.go
-        ├── rest.go
-        └── rest_test.go
+    ├── api.go                — v1 Options, NewOptions, AddFlags, Run
+    ├── proto/                — v1 gRPC protocol + committed bindings
+    ├── scheme/               — v1 dynamic Scheme builder + typed Object
+    ├── openapi/              — v1 defs-map helpers + openapi-gen output
+    ├── grpcbackend/          — v1 rest.Storage adapter
+    │
+    └── v2/                   — v2 substrate (0030 promotion)
+        ├── doc.go            — overview + migration guidance
+        ├── proto/            — v2 gRPC protocol (adds Validate/Mutate,
+        │                        watch_capability, schema_is_openapi,
+        │                        AdmissionCause[])
+        ├── scheme/           — v2 typed wrapper + Scheme builder
+        │                        (new canonical names so v1 and v2 can
+        │                         coexist in one binary)
+        ├── openapi/          — Compose returns a LIVE closure;
+        │                        Synthesize lifts plain JSON Schema
+        │                        (Track B); refs use "#/definitions/"
+        │                        (0024 fix); re-exports v1's
+        │                        generated meta/v1 defs.
+        ├── grpcbackend/      — v2 rest.Storage adapter. Optional
+        │                        MetadataStore + admission.Engine;
+        │                        unified RV authority; initial-events-end
+        │                        BOOKMARK; push/poll watch mode.
+        ├── httpbackend/      — HTTP/JSON + SSE client implementing the
+        │                        same Backend interface. Transport is
+        │                        a flag, not a rebuild (0026).
+        ├── metadatastore/    — CRD-backed KRM metadata store. Ships
+        │                        the ResourceMetadata CRD YAML embedded.
+        ├── gc/               — GC reconciler for orphaned Records.
+        │                        HTTP /gc/run + /gc/last debug endpoints.
+        ├── admission/        — CEL validation + JSONPath mutation
+        │                        engine. Composes additively with
+        │                        backend-RPC admission.
+        ├── multiplex/        — dynamic APIDefinition-CRD reconciler.
+        │                        Typed APIDefinition runtime.Object;
+        │                        APIDefinition CRD YAML embedded.
+        └── watch/            — transport-neutral watch helpers:
+                                 BookmarkObject builder; RV Authority.
 ```
 
-Substrate totals as of the second promotion: approximately 2,200
-lines of Go + ~900 lines of tests, plus ~2,700 lines of committed
-openapi-gen output and ~2,000 lines of committed proto bindings
-(both amortized across every component-mode consumer).
+Approximate LOC for the substrate:
 
-### Two consumer shapes
+- v1 hand-written: ~1,600 lines Go + ~900 test lines.
+- v1 generated:   ~2,000 lines proto bindings + ~2,700 lines
+  openapi-gen output (meta/v1 etc.).
+- v2 hand-written: ~4,565 lines Go + ~1,620 test lines.
+- v2 generated:   ~2,500 lines proto bindings.
+
+v2 is larger than v1's hand-written budget because v1 only covers
+proto + scheme + openapi + rest. v2 adds: metadatastore (~380),
+gc (~260), admission (~320), httpbackend (~470), multiplex (~800),
+watch (~120). The v2 rest adapter itself (grpcbackend) is ~965 —
+larger than v1's 690 because it integrates metastore, admission,
+unified RV, and initial-events-end BOOKMARK into one seam.
+
+### Three consumer shapes
 
 An experiment that wants an aggregated API picks one of:
 
 1. **Library mode** — link against `runtime/server` +
    `runtime/group` + `runtime/storage`, implement
-   `runtime/storage.Backend` for the resource. Used by 0002, 0007,
-   0009, 0010, 0011. Best for Go-native backends, typed resource
-   models with codegen'd deepcopy, and experiments where the
-   backend is a library-level consumer.
+   `runtime/storage.Backend`. Best for Go-native backends with
+   typed codegen. Used by 0002, 0007, 0009, 0010, 0011. Wire
+   parity + SSA + explain all work; scheme and types live in the
+   experiment.
+2. **Component mode, v1** — use `runtime/component.Run` in a tiny
+   main, implement the v1 `runtime/component/proto.Backend` gRPC
+   service in a separate process. Used by 0013, 0017, 0018, 0021.
+   The backend can be any language; the component server is
+   resource-agnostic. No state in the middleware (backend owns
+   everything).
+3. **Component mode, v2** — use `runtime/component/v2` packages.
+   Same core contract (JSON-bytes proto, resource-agnostic
+   middleware) but with the arc's five commitments folded in:
+   state split (metadata on host CRD, business data on backend),
+   unified RV authority, initial-events-end BOOKMARK, declarative
+   admission, dual transport. Two sub-shapes:
+   - **Single-AA.** Full wire parity — explain, SSA, unified RV,
+     BOOKMARK all work. Closest to v1's shape.
+   - **Multiplex.** One middleware process hosts many AAs declared
+     as `APIDefinition` CRDs. CRUD + list + watch + table render
+     work. `kubectl explain` and SSA degrade on
+     dynamically-installed groups (known gap; see
+     `runtime/component/v2/multiplex` package doc).
 
-2. **Component mode** — use `runtime/component.Run` in a tiny
-   `main.go`; implement the `runtime/component/proto.Backend`
-   gRPC service in a separate process (possibly a different
-   language). Used by 0013, 0017, 0018, 0021. Best for polyglot
-   backends, for amortizing the apiserver wiring cost across many
-   backends, or for cases where the backend must run in a
-   different security/trust domain.
-
-Both modes share `runtime/server` (the Options + generic-apiserver
-Config + Run), `runtime/group` (the API-group installer), and
-`runtime/authz` (the external-HTTP-policy Authorizer). The choice
-is in how `rest.Storage` is implemented, not in the apiserver
-plumbing.
-
-### Per-request request flow
+### Per-request request flow (v2)
 
 ```
 kubectl
    │  HTTPS (client cert validated by kube-apiserver)
    ▼
 kube-apiserver (aggregation layer)
-   │  mTLS w/ aggregator client cert
-   │  X-Remote-User, X-Remote-Group, X-Remote-Extra-*
+   │  mTLS + X-Remote-{User,Group,Extra-*}
    ▼
 extension apiserver (built on runtime/server)
    │
-   ├─ DelegatingAuthenticator  (library)
-   │  │  user.Info in context
-   │  ▼
-   ├─ runtime/authz.Authorizer (first in union chain)
-   │  │  POST JSON to policy service
-   │  │  Allow / Deny / NoOpinion
-   │  ▼
-   └─ handler chain → endpoint filter → rest.Storage
-                                           │
-                                           ▼
-                                    runtime/storage.REST (adapter)
-                                           │
-                                           ├─ Get / List / Watch  → Backend
-                                           │
-                                           ├─ Create / Update /   → WritableBackend
-                                           │  Delete / Patch       (if backend implements it)
-                                           │
-                                           ├─ ConvertToTable       → Backend.Table*
-                                           │
-                                           └─ PublishAdded/
-                                              Modified/Deleted    (called by backend
-                                                                   polling loops; stamps
-                                                                   RV; fans out via
-                                                                   watch.Broadcaster)
+   ├─ DelegatingAuthenticator         (library)
+   ├─ runtime/authz.Authorizer        (optional, union.New first)
+   │
+   └─ handler chain → endpoint filter → v2 rest.Storage
+          │
+          │  (declarative) admission.Engine         (optional)
+          │     Mutate → Validate
+          │     → 422 with field.ErrorList on deny
+          │
+          │  (backend-RPC) Mutate / Validate        (opt-in)
+          │     → same 422 wire shape on deny
+          │
+          │  transport: gRPC (grpcbackend.Dial) OR HTTP (httpbackend.New)
+          │     Get / List / Create / Update / Apply / Delete / Watch
+          │
+          │  (optional) metadatastore.Store.{Get,Put,Delete,List,Watch}
+          │     stitches KRM metadata onto backend spec/status
+          │
+          │  (optional) gc.Reconciler.Start
+          │     periodic sweep deletes orphaned Records
+          │
+          └─ utilwatch.Broadcaster
+                 emits initial-events-end BOOKMARK unconditionally
+                 at tail of Watch prefix; push or poll upstream
 ```
 
-### Backend → adapter contract
+### State split (v2)
 
 ```
-┌─────────────────────────┐         ┌───────────────────────────────┐
-│ experiment-owned        │         │ runtime/storage.REST          │
-│ Backend implementation  │ ──────► │   (rest.Storage + all the     │
-│  • New / NewList        │ wraps   │    rest.* interfaces the      │
-│  • Kind / SingularName  │         │    library demands)           │
-│  • NamespaceScoped      │         │                               │
-│  • Get / List           │         │   • owns watch.Broadcaster    │
-│  • TableColumns         │         │   • owns atomic.Uint64 RV     │
-│  • RowsFor              │         │   • stale-RV → 410 Gone       │
-│                         │         │   • label selector filter     │
-│  optionally:            │         │   • rest.Patcher (if Writable)│
-│  • Create / Update /    │ ◄────── │                               │
-│    Delete               │ gives   │   Publisher interface for     │
-│                         │ back    │   backends to push watch      │
-│                         │         │   events.                     │
-└─────────────────────────┘         └───────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│ host-cluster etcd                                             │
+│   ┌──────────────────────────────────────────────────────┐    │
+│   │ aggexpmeta.aggexp.io/v1 ResourceMetadata (cluster)   │    │
+│   │   one CR per (group, resource, ns, name) combo      │    │
+│   │   carries uid, labels, annotations, finalizers,     │    │
+│   │   ownerReferences, managedFields, deletionTimestamp │    │
+│   └──────────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────────┘
+                           ▲
+         metadatastore.Store │ (dynamic client)
+                           │
+┌───────────────────────────┴───────────────────────────────────┐
+│ middleware pod (runtime/component/v2)                         │
+│   REST stitches on every Get/List/Watch.                      │
+│   gc.Reconciler reconciles the two stores periodically.       │
+└───────────────────────────┬───────────────────────────────────┘
+                           │ gRPC / HTTP+SSE
+                           ▼
+┌───────────────────────────────────────────────────────────────┐
+│ backend process (any language)                                │
+│   serves spec + status, namespace + name only.                │
+│   knows zero Kubernetes-specific concepts.                    │
+└───────────────────────────────────────────────────────────────┘
 ```
 
-### Deployment shape (unchanged)
+### Deployment shape
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  kind cluster                                               │
-│                                                             │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  namespace: default                                   │  │
-│  │  ┌───────────────┐    APIService v1.aggexp.io         │  │
+│  │  ┌───────────────┐    APIService v1.<group>           │  │
 │  │  │ kube-apiserver│ ─────────────┐                     │  │
 │  │  └───────┬───────┘              │                     │  │
 │  │          │ aggregation (mTLS)   ▼                     │  │
-│  └──────────┼──────────────────────────────────────────  │  │
+│  │  ┌───────────────────────────────────────────────────┐ │
+│  │  │  CRDs:                                            │ │
+│  │  │    - resourcemetadatas.aggexpmeta.aggexp.io (v2)  │ │
+│  │  │    - apidefinitions.aggexp.io         (v2 mx)     │ │
+│  │  └───────────────────────────────────────────────────┘ │
+│  └──────────┼──────────────────────────────────────────────┘
 │             ▼                                              │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  namespace: aggexp-system                             │  │
 │  │    Service: aggexp:443 ──► Pod: aggexp (8443/HTTPS)   │  │
-│  │       binary: aggexp-<experiment>:dev                 │  │
-│  │       linked against:                                 │  │
-│  │         runtime/server  runtime/storage               │  │
-│  │         runtime/authz   runtime/group                 │  │
-│  │         + per-experiment scheme/types/backend         │  │
-│  │                                                       │  │
+│  │       runtime/component/v2 binary                     │  │
 │  │    Secret: aggexp-serving-cert                        │  │
 │  │    ServiceAccount + RBAC                              │  │
 │  │                                                       │  │
+│  │    one or more backend Deployments (gRPC or HTTP)     │  │
+│  │                                                       │  │
 │  │    optional: policy-service Deployment                │  │
-│  │              (speaks runtime/authz's JSON protocol)   │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
-
-The Deployment image and the per-experiment manifests vary;
-`deploy/manifests/` defines the namespace, SA, RBAC, Service, and
-APIService common to all experiments.
 
 ## What is *not* in runtime/
 
 - Per-group Schemes, types, install packages. Those stay with the
   experiment that owns the type; the substrate is generic over
   schemes.
-- Generated OpenAPI. Experiments run `openapi-gen` (or hand-copy from
-  a neighboring experiment) themselves; the substrate only accepts
-  the resulting `GetOpenAPIDefinitions` function.
+- Generated OpenAPI (v1 path). Experiments run `openapi-gen` (or
+  hand-copy from a neighboring experiment) themselves; the
+  substrate only accepts the resulting `GetOpenAPIDefinitions`
+  function. v2's Track B synthesis path replaces this for new
+  consumers: ship plain JSON Schema, the middleware lifts.
 - Concrete drivers (filesystem, github, http). Those live with
   experiments until two demand the same concrete shape.
-- A CLI entry point. Each experiment has its own `cmd/aggexp-<name>/
-  main.go`; the substrate exposes `Options.Run(ctx, serverName,
-  Input, installers, postStartHooks)`.
+- A CLI entry point. Each experiment has its own
+  `cmd/aggexp-<name>/main.go`.
+- Push-vs-poll runtime capability probing in v2; we take the
+  backend's declared `watchCapability` as truth for now. A probe
+  could land in a future v2 sub-version if the declared-vs-actual
+  gap matters.
 
 ## Promotion history
 
-- **2026-04-29** — first promotion. Extracted `runtime/server`,
-  `runtime/authz`, `runtime/storage`, `runtime/group` from
-  0002+0004's shared shape. See
-  `FINDINGS/0007-runtime-fs-driver.md` for how the extracted
-  substrate behaved when driven by a new (filesystem) backend.
+- **2026-04-29** — first promotion. Extracted `runtime/{server,
+  authz, storage, group}` from 0002+0004's shared shape. See
+  `FINDINGS/0007-runtime-fs-driver.md` for the first post-promotion
+  consumer.
 - **2026-04-29** — second promotion. Extracted
-  `runtime/component/` (proto, scheme, openapi, grpcbackend + the
-  top-level api.go) from the shared shape between 0013, 0017, and
-  0018. See `FINDINGS/0021-runtime-component-parity.md` for how
-  the extracted substrate behaved when driven by a fresh consumer.
+  `runtime/component/{proto, scheme, openapi, grpcbackend}` from
+  0013, 0017, 0018. See
+  `FINDINGS/0021-runtime-component-parity.md` for the first
+  post-promotion consumer.
+- **2026-04-30** — third promotion. `runtime/component/v2/`
+  consolidates the stateful-middleware-refinement arc (0022-0029).
+  See `FINDINGS/0030-runtime-component-v2-promotion.md`. A follow-on
+  consumer experiment (0031) is queued.
+
+## Known v2 gaps
+
+These are known and intentional. Upstream fixes either require
+library-level changes beyond this arc's scope or have no evidence
+demanding attention yet:
+
+- **Dynamic-install SSA + explain.** Groups installed after
+  PrepareRun (multiplex mode) do not participate in the library's
+  `/openapi/v3` per-group endpoint map or in
+  `managedfields.NewTypeConverter`. CRUD + list + watch + table
+  work; `kubectl explain` and `kubectl apply --server-side` degrade.
+  Single-AA v2 consumers have full parity.
+- **MetadataStore schema evolution.** Single-version CRD. Migration
+  across CRD versions would need a conversion webhook or an
+  offline snapshot+restore. Not provided.
+- **Backend-to-middleware identity / mTLS.** The middleware trusts
+  the backend; the backend trusts the middleware. Multi-tenant
+  deployments would want SPIFFE or mTLS on this leg. Not provided.
+- **Encryption at rest for ResourceMetadata.** Records land in host
+  etcd. Operators persisting secrets-adjacent annotations need
+  `EncryptionConfiguration` enabled for
+  `resourcemetadatas.aggexpmeta.aggexp.io` on the host cluster.
+- **Push-capability runtime probe.** v2 honors the declared
+  `watchCapability` in APIDefinition. A probe (try Watch once,
+  fall back to poll on codes.Unimplemented) is a future addition.
 
 ## Anticipated next substrate work (not commitments)
 
-- `runtime/openapi/common.go` pre-generated meta/v1 + runtime +
-  version schemas so experiments carry only their own type
-  schemas. Waits until a second or third experiment feels the
-  pain of re-running openapi-gen.
+- First post-v2-promotion consumer (`0031-runtime-component-v2-parity`
+  or similar) to shake out the gaps a parity consumer exposes.
+- Library-level dynamic-install fix (V3 endpoint refresh + SSA
+  typed-converter rebuild on `InstallAPIGroup`). This touches
+  apiserver internals and may require an upstream patch rather than
+  substrate-side work.
 - `drivers/` opens when a second polling-based external-backend
-  driver shows up with a shape identical to 0004's github/. E.g.
-  if `http-driver` and `github-webhook-watch` both land, they may
-  share enough that a `drivers/polling/` helper becomes warranted.
-- `runtime/admission/` for validating/mutating admission when the
-  first experiment needs it (the 0003 finding flagged "name-based
-  CREATE policy is an admission concern, not authz").
+  driver shows up with a shape identical to 0004's github/.

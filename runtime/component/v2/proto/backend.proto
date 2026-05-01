@@ -1,0 +1,271 @@
+// Package backend is the v2 gRPC protocol between the generic
+// Kubernetes-aware middleware (runtime/component/v2) and a
+// resource-specific backend.
+//
+// v2 consolidates the stateful-middleware-refinement arc (0022-0029).
+// Differences from v1 (runtime/component/proto):
+//
+//   - Adds Validate and Mutate RPCs (from 0020). Backends may
+//     advertise supports_validation / supports_mutation; the
+//     middleware invokes these after its own CEL/JSONPath admission
+//     rules (0029) but before persistence.
+//   - Adds watch_capability in GetSchemaResponse (from 0025); values
+//     are "poll", "push", or "both". The middleware honors it as a
+//     hint; it also probes at startup.
+//   - No ObjectMeta ownership in the Backend: the middleware owns
+//     UID, resourceVersion, managedFields, finalizers,
+//     ownerReferences, labels, annotations, deletionTimestamp — per
+//     the 0022 thesis. The backend serves spec+status only. (This
+//     is a soft contract, not a wire-enforced one: the proto still
+//     carries full JSON bytes.)
+//
+// JSON-bytes payloads (from 0013) are preserved so the backend can
+// be written in any language without per-type codegen (0019). HTTP
+// transport is additive (0026); see runtime/component/v2/httpbackend
+// for an implementation of the same logical contract over HTTP+SSE.
+//
+// Regenerate with (from the repo root):
+//
+//   protoc --go_out=. --go_opt=paths=source_relative \
+//     --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+//     runtime/component/v2/proto/backend.proto
+
+syntax = "proto3";
+
+package aggexp.component.v2;
+
+option go_package = "github.com/cheeseandcereal/aggexp/runtime/component/v2/proto;componentv2pb";
+
+service Backend {
+  // GetSchema is called at registration time. The backend describes
+  // the resource it serves (GVR, JSON Schema, watch capability, opt-in
+  // flags). Schema can be either full Kubernetes OpenAPI or plain
+  // JSON Schema (Track B from 0023); see schema_is_openapi.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+
+  // Get returns one object's business data by (namespace, name).
+  // NOT_FOUND on miss.
+  rpc Get(GetRequest) returns (GetResponse);
+
+  // List returns business data for all objects in a namespace (or
+  // all, when namespace is empty or the resource is cluster-scoped).
+  rpc List(ListRequest) returns (ListResponse);
+
+  // Create persists a new object's spec/status. The middleware has
+  // already minted UID and written its metadata Record; this call
+  // only ships the business payload.
+  rpc Create(CreateRequest) returns (CreateResponse);
+
+  // Update replaces an object's spec/status.
+  rpc Update(UpdateRequest) returns (UpdateResponse);
+
+  // Apply is the backend's Server-Side-Apply hook. Identical to
+  // Update semantically for most backends; the middleware has
+  // already merged fields and computed managedFields.
+  rpc Apply(ApplyRequest) returns (ApplyResponse);
+
+  // Delete removes an object.
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+
+  // Watch streams change events. Only called if the backend
+  // advertised watch_capability in ("push", "both").
+  rpc Watch(WatchRequest) returns (stream WatchEvent);
+
+  // Validate runs backend-native admission for one request. Called
+  // after the middleware's declarative admission (0029) has already
+  // evaluated. Only invoked if supports_validation = true.
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+
+  // Mutate runs backend-native defaulting. Runs BEFORE Validate, on
+  // the same request. Only invoked if supports_mutation = true.
+  rpc Mutate(MutateRequest) returns (MutateResponse);
+}
+
+// UserInfo mirrors k8s.io/apiserver/pkg/authentication/user.Info.
+message UserInfo {
+  string name = 1;
+  string uid = 2;
+  repeated string groups = 3;
+  map<string, StringList> extra = 4;
+}
+
+message StringList {
+  repeated string values = 1;
+}
+
+message TableColumn {
+  string name = 1;
+  string type = 2;
+  string format = 3;
+  string description = 4;
+  int32 priority = 5;
+}
+
+message GetSchemaRequest {}
+
+message GetSchemaResponse {
+  string group = 1;
+  string version = 2;
+  string resource = 3;   // plural, lowercase
+  string kind = 4;       // CamelCase singular
+  string singular = 5;   // lowercase singular
+  bool namespaced = 6;
+  bool writable = 7;
+
+  // Schema is either plain JSON Schema describing spec+status shape
+  // (Track B, 0023) or full Kubernetes-dialect OpenAPI v3 (Track A).
+  // schema_is_openapi distinguishes. The middleware defaults to
+  // Track B lifting if the flag is absent.
+  bytes schema = 8;
+  bool schema_is_openapi = 9;
+
+  repeated TableColumn columns = 10;
+  repeated string row_fields = 11;
+  repeated string short_names = 12;
+  repeated string categories = 13;
+
+  bool supports_server_side_apply = 14;
+  bool supports_validation = 15;
+  bool supports_mutation = 16;
+
+  // watch_capability is "poll", "push", or "both" (0025). Empty
+  // defaults to "poll".
+  string watch_capability = 17;
+}
+
+message GetRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message GetResponse {
+  bytes object_json = 1;
+}
+
+message ListRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+}
+
+message ListResponse {
+  repeated bytes items_json = 1;
+}
+
+message CreateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  bytes object_json = 3;
+  string field_manager = 4;
+}
+
+message CreateResponse {
+  bytes object_json = 1;
+}
+
+message UpdateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  bool force_allow_create = 5;
+  string field_manager = 6;
+}
+
+message UpdateResponse {
+  bytes object_json = 1;
+  bool created = 2;
+}
+
+message ApplyRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  string field_manager = 5;
+  bool force = 6;
+}
+
+message ApplyResponse {
+  bytes object_json = 1;
+  bool created = 2;
+}
+
+message DeleteRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+}
+
+message DeleteResponse {
+  bytes object_json = 1;
+  bool deleted = 2;
+}
+
+message WatchRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string label_selector = 3;
+  string resource_version = 4;
+}
+
+enum EventType {
+  EVENT_UNSPECIFIED = 0;
+  EVENT_ADDED = 1;
+  EVENT_MODIFIED = 2;
+  EVENT_DELETED = 3;
+  EVENT_BOOKMARK = 4;
+}
+
+message WatchEvent {
+  EventType type = 1;
+  bytes object_json = 2;
+}
+
+// ValidateRequest carries one CREATE or UPDATE for backend-side
+// admission.
+message ValidateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  // old_object_json is the prior state on UPDATE; empty on CREATE.
+  bytes old_object_json = 5;
+  // operation is "CREATE" or "UPDATE".
+  string operation = 6;
+}
+
+// ValidateResponse signals allow/deny. causes is populated when
+// allowed=false; its items map 1:1 to field.Error entries so the
+// middleware can assemble a multi-cause 422 response (per 0029's
+// "single 422 wire shape" observation).
+message ValidateResponse {
+  bool allowed = 1;
+  // reason is a short human message; ignored if causes is non-empty.
+  string reason = 2;
+  repeated AdmissionCause causes = 3;
+}
+
+message AdmissionCause {
+  string field = 1;
+  string message = 2;
+  // type matches Kubernetes' FieldValueInvalid / FieldValueRequired /
+  // FieldValueNotSupported etc. Empty defaults to FieldValueInvalid.
+  string type = 3;
+}
+
+message MutateRequest {
+  UserInfo user = 1;
+  string namespace = 2;
+  string name = 3;
+  bytes object_json = 4;
+  bytes old_object_json = 5;
+  string operation = 6;
+}
+
+message MutateResponse {
+  // mutated_object_json is the post-mutation object. Empty means
+  // "no change"; callers MUST fall back to the input in that case.
+  bytes mutated_object_json = 1;
+}
