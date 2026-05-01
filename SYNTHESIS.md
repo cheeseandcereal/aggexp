@@ -18,24 +18,36 @@ provide the evidence.
 
 ## Current state
 
-Informed by twenty-three experiments and two substrate promotions:
+Informed by twenty-six experiments and two substrate promotions:
 
 - `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0021-runtime-component-parity`
   — see earlier listing.
 - `FINDINGS/0022-stateful-middleware-thesis` — arc kickoff for the
-  stateful-middleware-refinement arc. Captured design commitments
-  (state required; shared metadata CRD invisible to exposed-
-  resource discovery; no generic backend state API; multiplex
-  with dynamic reconciler; declarative admission; swappable
-  transport; 4 watch capability levels; `runtime/component/v2/`
-  as new package). Thesis package compiles but has no runtime.
-- `FINDINGS/0023-schema-source-exploration` — empirical probe of
-  three OpenAPI-source paths. All three produce kubectl-identical
-  behavior. Recommendation: **Track B (middleware synthesizes
-  full Kubernetes OpenAPI from a plain JSON Schema the backend
-  supplies)** is the default for the arc. Keeps zero K8s-concepts
-  on the backend-author side, matches mainstream JSON-Schema
-  tooling across languages, minimal middleware delta.
+  stateful-middleware-refinement arc. Captured design commitments.
+- `FINDINGS/0023-schema-source-exploration` — middleware-synthesizes
+  OpenAPI from plain JSON Schema (Track B) is the default.
+- `FINDINGS/0024-metadata-crd-store` — load-bearing experiment of
+  the arc: KRM metadata lives in a shared cluster-scoped
+  `resourcemetadatas.aggexpmeta.aggexp.io/v1` CRD, stitched onto
+  backend business data on every Get. Six scenarios pass
+  including ArgoCD visibility (no double-tracking; tracking
+  annotations are scoped inside the CR's spec rather than its
+  own metadata, so ecosystem controllers don't manage them).
+  Stitch overhead ~3-5 ms. Key consequent: the Track B
+  synthesizer must emit `#/definitions/...` refs, not
+  `#/components/schemas/...`, or ArgoCD's OpenAPI parser fails.
+- `FINDINGS/0025-push-backed-watch` — push-capable backend
+  streams events at ~2 ms latency vs. 6-30 s polling.
+  Middleware-side `initial-events-end` BOOKMARK (emitted
+  unconditionally) closes 0011's `kubectl wait --for=jsonpath`
+  gap. Surfaces a new resourceVersion-authority split: Get/List
+  shows backend RVs while Watch shows middleware-counter RVs.
+- `FINDINGS/0026-http-json-backend-transport` — HTTP/JSON + SSE
+  transport alongside gRPC. kubectl-identical behavior; perf
+  identical at lab scale; backend-author LOC surprisingly similar
+  (HTTP is ~16% longer in Go because gRPC's codegen hides
+  boilerplate). HTTP wins on toolchain footprint, debuggability,
+  and polyglot ecosystem fit.
 
 MVP-lab and MVP-example complete.
 
@@ -47,7 +59,14 @@ Substrate `runtime/` has two promotions:
    0020, 0021).
 
 A third promotion (`runtime/component/v2/`) is queued for 0030
-incorporating the stateful-middleware arc's findings.
+incorporating the stateful-middleware arc's findings. Specific
+substrate-fixes that must land in v2:
+- `componentopenapi.WrapAsList` must emit `#/definitions/...`
+  refs (per 0024 — or ArgoCD clients break).
+- Middleware unconditionally emits the `initial-events-end`
+  BOOKMARK on the Watch handler tail-of-prefix (per 0025).
+- Resource-version authority unified — one monotonic counter
+  per resource, source of truth in middleware (per 0025).
 
 See `ARCHITECTURE.md`.
 
