@@ -1886,7 +1886,7 @@ const file_proto_backend_proto_rawDesc = "" +
 	"\x06Update\x12\x1c.aggexp.krm.v1.UpdateRequest\x1a\x1d.aggexp.krm.v1.UpdateResponse\x12B\n" +
 	"\x05Apply\x12\x1b.aggexp.krm.v1.ApplyRequest\x1a\x1c.aggexp.krm.v1.ApplyResponse\x12E\n" +
 	"\x06Delete\x12\x1c.aggexp.krm.v1.DeleteRequest\x1a\x1d.aggexp.krm.v1.DeleteResponse\x12A\n" +
-	"\x05Watch\x12\x1b.aggexp.krm.v1.WatchRequest\x1a\x19.aggexp.krm.v1.WatchEvent0\x01B_Z]github.com/cheeseandcereal/aggexp/experiments/0029-declarative-admission-in-config/gen/aggexp/krm/v1;krmv1b\x06proto3"
+	"\x05Watch\x12\x1b.aggexp.krm.v1.WatchRequest\x1a\x19.aggexp.krm.v1.WatchEvent0\x01BlZjgithub.com/cheeseandcereal/aggexp/experiments/0029-declarative-admission-in-config/gen/aggexp/krm/v1;krmv1b\x06proto3"
 
 var (
 	file_proto_backend_proto_rawDescOnce sync.Once
