@@ -18,31 +18,36 @@ provide the evidence.
 
 ## Current state
 
-Informed by twenty-one experiments and two substrate promotions:
+Informed by twenty-three experiments and two substrate promotions:
 
-- `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0018-krm-component-parity-s3`
+- `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0021-runtime-component-parity`
   — see earlier listing.
-- `FINDINGS/0019-krm-polyglot-backend` — 0017's note-backend re-
-  implemented in python behind the unchanged 0017 component-server
-  image. End-to-end parity including SSA conflict detection;
-  python ~30% shorter on semantic LOC; image size 13× larger.
-- `FINDINGS/0020-krm-admission-hook` — extends the KRM protocol
-  with Validate + Mutate RPCs. Closes the authz-vs-admission
-  boundary flagged by 0003 for the component-server architecture.
-- `FINDINGS/0021-runtime-component-parity` — first consumer of
-  the promoted `runtime/component/` substrate. ~40-line
-  `note-aa` + 0017-style backend; 0.27× the handwritten Go of
-  0017 with zero generated code in the consumer tree.
+- `FINDINGS/0022-stateful-middleware-thesis` — arc kickoff for the
+  stateful-middleware-refinement arc. Captured design commitments
+  (state required; shared metadata CRD invisible to exposed-
+  resource discovery; no generic backend state API; multiplex
+  with dynamic reconciler; declarative admission; swappable
+  transport; 4 watch capability levels; `runtime/component/v2/`
+  as new package). Thesis package compiles but has no runtime.
+- `FINDINGS/0023-schema-source-exploration` — empirical probe of
+  three OpenAPI-source paths. All three produce kubectl-identical
+  behavior. Recommendation: **Track B (middleware synthesizes
+  full Kubernetes OpenAPI from a plain JSON Schema the backend
+  supplies)** is the default for the arc. Keeps zero K8s-concepts
+  on the backend-author side, matches mainstream JSON-Schema
+  tooling across languages, minimal middleware delta.
 
 MVP-lab and MVP-example complete.
 
-Substrate `runtime/` now has two promotions:
+Substrate `runtime/` has two promotions:
 1. `runtime/{server, group, authz, storage}` — the library pattern
    (consumers: 0002, 0004, 0007, 0009, 0010, 0011).
 2. `runtime/component/{proto, scheme, openapi, grpcbackend}` — the
    component-server pattern (consumers: 0013, 0017, 0018, 0019,
-   0020, 0021; the last is the first post-promotion library-mode
-   consumer).
+   0020, 0021).
+
+A third promotion (`runtime/component/v2/`) is queued for 0030
+incorporating the stateful-middleware arc's findings.
 
 See `ARCHITECTURE.md`.
 
@@ -153,6 +158,22 @@ substrate extraction held under this first library-mode consumer
 with no per-consumer patches. A new `--use-typed-wrapper=true`
 default flipped from 0017's opt-in, because SSA working is now
 the expected baseline.
+
+**The OpenAPI source can be middleware-synthesized from plain
+JSON Schema without any backend-side Kubernetes tooling** [`0023`].
+0023 tested three paths: (A) backend ships full Kubernetes
+OpenAPI, (B) backend ships plain JSON Schema and middleware
+lifts, (C) OpenAPI lives in a host-cluster `APIDefinition` CRD.
+All three produce kubectl-identical behavior including SSA and
+per-field `explain`. The lift in (B) is 127 lines of purely
+mechanical boilerplate: synthesize ObjectMeta wrapper, List
+wrapper, stamp the GVK extension, insert
+`x-kubernetes-preserve-unknown-fields` where the JSON Schema is
+silent. Mainstream JSON-Schema tooling (pydantic, schemars,
+zod-to-json-schema) emits exactly what the middleware consumes;
+the backend author writes zero K8s-specific code to describe
+their type. The arc standardizes on (B) as the default with (C)
+retained as an escape hatch for dynamic multi-AA deployment.
 
 **The stateless-AA + CRD-facade pattern supports real gitops
 controllers writing to our resources** [`0015`]. ArgoCD
