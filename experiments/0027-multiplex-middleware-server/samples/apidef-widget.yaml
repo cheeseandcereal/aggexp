@@ -1,0 +1,16 @@
+apiVersion: aggexp.io/v1
+kind: APIDefinition
+metadata:
+  name: widgets.aggexp.io
+spec:
+  group: widgets.aggexp.io
+  version: v1
+  kind: Widget
+  plural: widgets
+  singular: widget
+  scope: Namespaced
+  schemaSource: backendJSONSchema
+  backend:
+    transport: http
+    address: http://widget-backend.aggexp-system.svc:8080
+  watchCapability: push

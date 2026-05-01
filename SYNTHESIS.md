@@ -48,6 +48,19 @@ Informed by twenty-six experiments and two substrate promotions:
   (HTTP is ~16% longer in Go because gRPC's codegen hides
   boilerplate). HTTP wins on toolchain footprint, debuggability,
   and polyglot ecosystem fit.
+- `FINDINGS/0027-multiplex-middleware-server` — one middleware
+  process, three AAs registered dynamically via `APIDefinition`
+  CRDs watched by an in-process reconciler. `InstallAPIGroup`
+  after `PrepareRun` works once you nil out
+  `OpenAPIV3Config.Definitions` (a ~20-minute trap from the
+  pre-materialized cache). SSA + `kubectl explain` degrade for
+  dynamically-installed groups because the V3 openapi endpoints
+  and the SSA typed-converter both assume groups are fixed at
+  PrepareRun — new substrate-level axis for 0030 to address.
+  Basic CRUD + list + watch + table work. Graceful SIGTERM sweep
+  of APIServices via PreShutdown hook works cleanly. Three AAs
+  isolated from each other's lifecycle (delete one, others
+  unaffected).
 
 MVP-lab and MVP-example complete.
 
@@ -67,6 +80,13 @@ substrate-fixes that must land in v2:
   BOOKMARK on the Watch handler tail-of-prefix (per 0025).
 - Resource-version authority unified — one monotonic counter
   per resource, source of truth in middleware (per 0025).
+- Dynamic-install friendly OpenAPI (per 0027) — two sub-fixes:
+  `runtime/server.Options` must surface a way to opt out of
+  `DefaultOpenAPIV3Config`'s eager `Definitions` materialization
+  (or the substrate should construct its own config with a live
+  `GetDefinitions` closure); `InstallAPIGroup` in the substrate's
+  multiplex mode must refresh the V3 per-group endpoints and the
+  SSA typed-converter for the newly-added group.
 
 See `ARCHITECTURE.md`.
 

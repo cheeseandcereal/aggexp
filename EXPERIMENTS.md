@@ -96,9 +96,21 @@ promotion.
   non-Go languages. Recommendation: dual-support in 0030, with
   HTTP as the preferred transport for new backends. Status:
   complete. See `FINDINGS/0026-http-json-backend-transport.md`.
-- `0027-multiplex-middleware-server` — one middleware, many AAs.
+- **`0027-multiplex-middleware-server`** — one middleware, many AAs.
   Reconciler watches `APIDefinition` CRDs, registers/deregisters
-  APIServices dynamically. Status written back to CRD.
+  APIServices dynamically via `genericapiserver.InstallAPIGroup`
+  at reconcile time, sweeps APIServices on SIGTERM via a
+  PreShutdown hook. Three AAs (widgets/gadgets/sprockets, each
+  on its own HTTP backend) served in one process demonstrated.
+  Key consequent: `DefaultOpenAPIV3Config` pre-materializes the
+  `Definitions` map at construction time, defeating dynamic
+  GetDefinitions callbacks; fix is to nil the cache before
+  PrepareRun. SSA and `kubectl explain` degrade for
+  dynamically-installed groups because the V3 openapi endpoints
+  and the SSA typed-converter both assume all groups known at
+  PrepareRun. Basic CRUD+list+watch+table render work cleanly.
+  Status: complete. See
+  `FINDINGS/0027-multiplex-middleware-server.md`.
 - `0028-metadata-store-gc` — garbage collects stale metadata CRD
   entries when backend objects disappear out of band.
 - `0029-declarative-admission-in-config` — admission rules (CEL

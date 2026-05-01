@@ -1,0 +1,16 @@
+apiVersion: aggexp.io/v1
+kind: APIDefinition
+metadata:
+  name: sprockets.sprockets.aggexp.io
+spec:
+  group: sprockets.aggexp.io
+  version: v1
+  kind: Sprocket
+  plural: sprockets
+  singular: sprocket
+  scope: Namespaced
+  schemaSource: backendJSONSchema
+  backend:
+    transport: http
+    address: http://sprocket-backend.aggexp-system.svc:8080
+  watchCapability: push
