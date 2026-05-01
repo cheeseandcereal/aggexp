@@ -2,6 +2,8 @@
 # Run the 0031 v2-parity scenario sweep. Captures outputs into a log
 # file the FINDINGS references. Intentionally chatty.
 set -u  # NOT -e; we want to see probes fail loudly rather than abort.
+set +u  # (temporarily disabled — the `&` background PID capture
+        # triggers `$!: unbound` otherwise; minor bash trap.)
 LOG="${LOG:-experiments/0031-runtime-component-v2-parity/hack/scenarios.log}"
 : > "${LOG}"
 
@@ -45,8 +47,10 @@ note "8. ResourceMetadata records written (0024 metastore)"
 run kubectl get resourcemetadatas
 
 note "9. watch streams — widget (push), gadget (poll)"
-(kubectl get widgets -w >> "${LOG}" 2>&1 &) ; WPID=$!
-(kubectl get gadgets -w >> "${LOG}" 2>&1 &) ; GPID=$!
+kubectl get widgets -w >> "${LOG}" 2>&1 &
+WPID=$!
+kubectl get gadgets -w >> "${LOG}" 2>&1 &
+GPID=$!
 sleep 3
 # trigger a modification
 kubectl annotate widget sample-widget demo/touched="$(date -u +%s)" --overwrite 2>&1 | tee -a "${LOG}"

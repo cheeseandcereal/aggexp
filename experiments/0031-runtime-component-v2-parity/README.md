@@ -94,6 +94,25 @@ complete
 
 <!-- See FINDINGS/0031-runtime-component-v2-parity.md. -->
 
+## Line count
+
+- `cmd/v2-parity-aa/main.go` — 258 lines (201 semantic).
+- `cmd/v2-parity-aa/yaml.go` — 19 lines (13 semantic).
+- `backend-widget-http/main.go` — 452 lines (stdlib-only HTTP/SSE).
+- `backend-gadget-grpc/main.go` — 279 lines (gRPC, UnimplementedBackendServer-embedded).
+- Total handwritten Go: 1,008 lines; consumer (middleware wiring
+  excluding backends): 277. Backends are both frozen-fork-ish
+  (widget is a 0027 fork; gadget is a clean-room single-kind gRPC
+  backend built on the v2 proto).
+- Comparison:
+  - 0021 (v1 single-AA, library-mode parity consumer): `main.go` 38 LOC.
+  - 0027 (v1 multiplex experiment, now substrate as v2/multiplex): `main.go` + `synthesis.go` + `http_client.go` ≈ 1,300 LOC (~800 of it reconciler).
+  - 0031 (v2 multiplex, post-promotion consumer): 277 LOC consumer.
+
+The jump from 0021's 38 LOC → 0031's 277 LOC is the multiplex-
+vs-single-AA cost, not the v2-vs-v1 cost. The drop from 0027's
+800+ LOC reconciler → ~100 LOC of `multiplex.New(...)` + `AttachServer`
++ post-start hooks is the substrate payoff.
 ## Decisions made
 
 - **Dynamic install via multiplex + APIDefinition CRDs.** Not static
@@ -113,7 +132,12 @@ complete
 - **Declarative admission on widgets only.** Validation forbids
   `color=black`; mutation defaults `spec.title` to `"Untitled"` on
   CREATE when absent. Both rules are trivially CEL- and JSONPath-
-  expressible and exercise the 0029 composition path.
+  expressible and exercise the 0029 composition path. First pass
+  used `.spec.title` (leading dot, looked natural alongside the
+  `fieldPath` convention kubectl prints) and silently no-op'd: the
+  substrate's `splitPath` treats `.spec.title` as
+  `["", "spec", "title"]` and bails out writing to the empty-string
+  top-level key. Documented as a consumer rough-edge in FINDINGS.
 - **Single GC Reconciler wired against widgets only.** GC Config is
   per-(group, resource); we wire one instance to demonstrate the
   substrate primitive rather than multiplexing GC per-AA. Sweep
