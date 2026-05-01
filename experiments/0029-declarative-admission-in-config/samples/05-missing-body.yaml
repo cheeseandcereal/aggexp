@@ -1,0 +1,12 @@
+# Middleware REJECTS on CREATE: body is missing. The backend's
+# existing rule only warns when body is empty; the middleware's
+# CEL rule hard-rejects. This differs from 02-middleware-rejects
+# only in which CEL rule fires, but it's worth exercising a
+# "missing required field" shape explicitly.
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: test-no-body
+  namespace: default
+spec:
+  title: "No body here"

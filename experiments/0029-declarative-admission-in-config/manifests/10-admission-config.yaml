@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aggexp-admission-config
+  namespace: aggexp-system
+data:
+  admission-config.yaml: |
+    apiVersion: aggexp.io/v1alpha1
+    kind: APIDefinition
+    backend:
+      addr: note-backend.aggexp-system.svc:9090
+    admission:
+      mutations:
+        - jsonPath: spec.priority
+          op: default
+          value: "normal"
+          operations: [CREATE]
+        - jsonPath: metadata.annotations.aggexp.io/middleware-stamped
+          op: set
+          value: "true"
+      validations:
+        - expression: '!has(object.spec.title) || size(object.spec.title) <= 30'
+          message: 'spec.title must be 30 characters or fewer (middleware rule; the backend''s own cap is 64)'
+          fieldPath: spec.title
+        - expression: '!has(object.spec.title) || !object.spec.title.contains("BADWORD")'
+          message: 'spec.title must not contain "BADWORD" (declarative content rule)'
+          fieldPath: spec.title
+        - expression: 'has(object.spec.body) && size(object.spec.body) > 0'
+          message: 'spec.body is required on CREATE (middleware rule; the backend merely warns)'
+          fieldPath: spec.body
+          operations: [CREATE]

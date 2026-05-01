@@ -1,0 +1,49 @@
+# Declarative admission config for experiment 0029. Loaded by the
+# middleware (component server) at startup via --admission-config.
+# Rules here are evaluated locally — no backend round-trip.
+#
+# This composes with the 0020-style backend Validate/Mutate RPCs
+# (note-backend.supports_validation / supports_mutation). Layer
+# ordering: middleware runs first, backend runs second. A denial
+# at either layer stops the write.
+apiVersion: aggexp.io/v1alpha1
+kind: APIDefinition
+backend:
+  addr: note-backend.aggexp-system.svc:9090
+admission:
+  mutations:
+    # 1. Default a priority field on CREATE if absent or empty. This
+    #    demonstrates middleware-only default-value semantics — the
+    #    backend has no concept of "priority" at all.
+    - jsonPath: spec.priority
+      op: default
+      value: "normal"
+      operations: [CREATE]
+    # 2. Stamp a middleware-controlled annotation on every write.
+    #    This is distinct from the backend's aggexp.io/accepted-at
+    #    stamp: both will appear, proving the two layers compose
+    #    without coordination.
+    - jsonPath: metadata.annotations.aggexp.io/middleware-stamped
+      op: set
+      value: "true"
+  validations:
+    # 1. Title length ceiling tighter than the backend's ceiling
+    #    (64). A title of 45 chars is rejected by middleware but
+    #    would be accepted by the backend. Demonstrates
+    #    "middleware rejects even though backend would pass".
+    - expression: '!has(object.spec.title) || size(object.spec.title) <= 30'
+      message: "spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64)"
+      fieldPath: spec.title
+    # 2. Content-based rule: titles may not contain the substring
+    #    "BADWORD". A backend RPC could enforce this too; the point
+    #    is that CEL can do it declaratively.
+    - expression: '!has(object.spec.title) || !object.spec.title.contains("BADWORD")'
+      message: "spec.title must not contain \"BADWORD\" (declarative content rule)"
+      fieldPath: spec.title
+    # 3. Cross-field / shape rule: on CREATE, body must be present
+    #    (non-empty). The backend only warns about empty body; the
+    #    middleware hard-rejects on CREATE.
+    - expression: 'has(object.spec.body) && size(object.spec.body) > 0'
+      message: "spec.body is required on CREATE (middleware rule; the backend merely warns)"
+      fieldPath: spec.body
+      operations: [CREATE]

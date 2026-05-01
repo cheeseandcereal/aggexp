@@ -1,0 +1,12 @@
+# Middleware REJECTS: title is 45 chars, exceeds the 30-char ceiling
+# in the CEL rule. The backend would have accepted it (backend cap
+# is 64). Proves middleware admission runs first and blocks before
+# the backend sees the request.
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: test-long-title
+  namespace: default
+spec:
+  title: "This title is forty-five characters long okay"
+  body: "body content"

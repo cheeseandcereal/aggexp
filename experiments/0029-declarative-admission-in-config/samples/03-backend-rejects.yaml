@@ -1,0 +1,12 @@
+# Middleware PASSES, backend REJECTS: name is "foo-..." which is
+# DNS-1123-valid, title is short, body is non-empty — no middleware
+# rule fires. The backend's own prefix rule (test-|prod-) fails.
+# Proves backend RPC admission still runs AFTER middleware admission.
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: foo-hello
+  namespace: default
+spec:
+  title: "A short title"
+  body: "body content"
