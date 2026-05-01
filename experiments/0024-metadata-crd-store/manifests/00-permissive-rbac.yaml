@@ -1,0 +1,52 @@
+# Permissive RBAC for the experiment:
+# - CRUD on buckets.aggexp.io for every authenticated principal
+#   (ordinary users + ecosystem controllers like ArgoCD's SA).
+# - CRUD on resourcemetadatas.aggexpmeta.aggexp.io for the AA's SA
+#   so the middleware can write the stitched metadata overlay.
+#
+# Production would of course scope these more tightly. This is the
+# laboratory default.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-buckets-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["buckets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-buckets-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-buckets-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
+---
+# Middleware writes ResourceMetadata CRs on behalf of the caller.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-resourcemetadata-rw
+rules:
+  - apiGroups: ["aggexpmeta.aggexp.io"]
+    resources: ["resourcemetadatas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-resourcemetadata-rw
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-resourcemetadata-rw
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
