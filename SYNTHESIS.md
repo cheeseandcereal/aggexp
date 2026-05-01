@@ -18,7 +18,7 @@ provide the evidence.
 
 ## Current state
 
-Informed by twenty-six experiments and two substrate promotions:
+Informed by twenty-seven experiments and two substrate promotions:
 
 - `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0021-runtime-component-parity`
   — see earlier listing.
@@ -48,6 +48,20 @@ Informed by twenty-six experiments and two substrate promotions:
   (HTTP is ~16% longer in Go because gRPC's codegen hides
   boilerplate). HTTP wins on toolchain footprint, debuggability,
   and polyglot ecosystem fit.
+- `FINDINGS/0028-metadata-store-gc` — garbage collector for the
+  0024 metadata-CRD store. Four scenarios (happy path, partial
+  orphan, full wipe, finalizer protection) confirm the mechanism
+  works and costs single-digit ms per sweep at lab scale. Key
+  learning: the reconciliation *between* the two state stores
+  (backend business data + host-cluster KRM metadata) is
+  **fundamental** to the 0024 axis, not optional polish. Grace
+  window of ~20–30s covers the polling-backend-lag race.
+  Finalizer protection + stitched-Get-fails-when-backend-gone
+  surfaces a secondary sharp edge: operators can't clear a
+  finalizer through kubectl when the backend is absent, because
+  the stitched Get 404s — they must edit the ResourceMetadata CR
+  directly. That points at a middleware-side improvement
+  (tolerant Get on backend-absent) rather than a GC fix.
 
 MVP-lab and MVP-example complete.
 
@@ -385,6 +399,33 @@ persistence — in-memory, a database, another external API. The
 component server doesn't care and has no compile-time knowledge
 of the resource type.
 
+**The business-data + KRM-metadata split is a fifth storage
+axis** [`0024`, `0028`]. Business data lives on an external
+backend; KRM metadata (uid, resourceVersion, labels,
+annotations, managedFields, finalizers, ownerReferences,
+deletionTimestamp) lives in a shared cluster-scoped CRD
+(`resourcemetadatas.aggexpmeta.aggexp.io/v1`) on the host
+cluster. The middleware stitches them onto every response.
+Avoids the per-resource-mirror failure mode 0015 named for the
+0010 facade (ArgoCD's tracker does not see annotations nested
+inside `resourcemetadata.spec.metadata.annotations`).
+
+**The fifth axis carries a recurring GC obligation.** Having two
+independent state stores means neither is authoritative for the
+other's existence: a backend object deleted out of band leaves
+the ResourceMetadata record stranded, and vice versa. 0028 is
+the reconciler: periodic sweep, list both sides, diff by
+(namespace, name), delete records whose backend object is absent.
+The obligation is **fundamental** to the axis, not a polish;
+what's consequent is the specific policy (skip on finalizer,
+skip on ownerReferences, grace window to avoid racing fresh
+Creates against polling-backend-lag, manual trigger via HTTP,
+sweep interval). Mechanism is small (~300 LOC) and cheap
+(single-digit ms at lab scale). Using the existing `Backend.List`
+RPC rather than adding an `Exists(ids)` RPC costs nothing at
+lab scale; at ≥10⁴-record scale, paginated List or a real
+`Exists` RPC becomes necessary — a proto-v2 concern.
+
 **Async backends cost two specific ecosystem idioms** [`0011`].
 `kubectl wait --for=jsonpath=...` fails against our AA because
 the substrate doesn't emit the `k8s.io/initial-events-end` bookmark
@@ -652,6 +693,19 @@ cluster (since our AA doesn't serve Leases) works cleanly.
 phase transitions. Fix is substrate-level: emit a bookmark event
 at the tail of initial-state replay. Queued as
 `watch-initial-events-end-bookmark`.
+
+**Split-store reconcilers have a small but non-zero GC-vs-write
+race window** [`0028`]. A Create whose metastore row has been
+written but whose backend.Create has not yet been observed by a
+polling backend looks like an orphan; a short grace window
+(age-based skip, ~20–30s) closes that common case. In-flight
+Update-vs-GC races have a subtler window where GC could delete
+a Record mid-Update and the stitchedrest Put resurrects it
+without managedFields; no data loss, but silent metadata loss
+is possible. Not reproduced against kubectl; a substrate-level
+serialization (per-Record lock or CAS on the Record's
+resourceVersion at GC-delete time) would close it definitively.
+Filed under "heals on next sweep" for now.
 
 Still unmeasured:
 
