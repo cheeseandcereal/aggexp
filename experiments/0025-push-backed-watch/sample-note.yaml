@@ -1,0 +1,8 @@
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: hello
+  namespace: default
+spec:
+  title: "Hello from 0025"
+  body: "scenario-1 latency test"
