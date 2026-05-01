@@ -43,9 +43,31 @@ promotion.
   (`SchemaSourceConfig` stays in the enum); Track A deprecated for
   new backends but wire-supported for 0017/0018/0019/0021. Status:
   complete. See `FINDINGS/0023-schema-source-exploration.md`.
-- `0024-metadata-crd-store` — separates KRM metadata from business
-  data via a shared `ResourceMetadata` CRD; rebuilds 0018's S3
-  Bucket AA with middleware-managed metadata overlay.
+- **`0024-metadata-crd-store`** — load-bearing experiment of the
+  stateful-middleware arc. Implements the 0022 thesis: business
+  data (spec+status) stays on the backend; KRM metadata
+  (uid/resourceVersion/managedFields/finalizers/ownerReferences/
+  labels/annotations/deletionTimestamp) is stitched onto every
+  response from a shared cluster-scoped
+  `resourcemetadatas.aggexpmeta.aggexp.io/v1` CRD. Six scenarios
+  pass end-to-end against a 0018-style S3 Bucket: create+list,
+  SSA with conflict detection, finalizer round-trip, ownerRefs
+  round-trip (cross-group GC limitation confirmed from
+  FINDINGS/0010), labels/annotations round-trip, and ArgoCD
+  visibility. The scenario-6 result: ArgoCD's cluster cache
+  discovers both the exposed `buckets.aggexp.io` and the backing
+  `resourcemetadatas.aggexpmeta.aggexp.io` CRDs but does NOT
+  double-track instances — tracking annotations are scoped
+  inside `resourcemetadata.spec.metadata.annotations`, not on the
+  CR's own `.metadata.annotations`, so ArgoCD's ResourceTracker
+  can't see them. 0015's failure mode is absent. Stitch overhead
+  ~3–5 ms per Get against the ~68 ms direct-CRD baseline. Key
+  consequent: Track B synthesis must emit `#/definitions/...`
+  refs, not `#/components/schemas/...`, or ArgoCD's cluster cache
+  fails with SchemaErrors (kube-apiserver's /openapi/v2
+  aggregator does not rewrite ref formats). A substrate fix to
+  `runtime/component/openapi.WrapAsList` is queued for 0030.
+  Status: complete. See `FINDINGS/0024-metadata-crd-store.md`.
 - `0025-push-backed-watch` — push-capable backend streams events
   instead of middleware polling.
 - `0026-http-json-backend-transport` — HTTP/JSON + SSE transport

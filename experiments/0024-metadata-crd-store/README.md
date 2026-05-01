@@ -91,6 +91,8 @@ kubectl --context kind-aggexp-meta-crd api-resources | grep buckets
 
 complete
 
+See `FINDINGS/0024-metadata-crd-store.md`.
+
 ## Decisions made
 
 - ResourceMetadata CRD is **cluster-scoped** even though Buckets
@@ -128,6 +130,11 @@ complete
   component's ServiceAccount. Arbitrary choice: full CRUD.
 - Log prefix `middleware:backend.*` vs `middleware:metastore.*` on
   every write to make the split traceable from kubectl.
+- **Ref format**: lifted OpenAPI uses `#/definitions/...` refs for
+  ObjectMeta/ListMeta/item so the aggregated `/openapi/v2` output
+  passes strict OpenAPI consumers (ArgoCD). The substrate's
+  `runtime/component/openapi.WrapAsList` still emits v3-style
+  refs; we override locally. See FINDINGS for the rationale.
 
 ## Prerequisites
 
