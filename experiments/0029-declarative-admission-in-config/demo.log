@@ -1,0 +1,93 @@
+==============================================================
+Experiment 0029 demo scenarios.
+Cluster: aggexp-0029. Date: 2026-05-01T04:01:02Z
+==============================================================
+
+--- Scenario 1: VALID — passes middleware + backend ---
+note.aggexp.io/test-valid created
+
+--- Scenario 1: kubectl get note test-valid -o yaml ---
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  annotations:
+    aggexp.io/accepted-at: "2026-05-01T04:01:02Z"
+    aggexp.io/middleware-stamped: "true"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"aggexp.io/v1","kind":"Note","metadata":{"annotations":{},"name":"test-valid","namespace":"default"},"spec":{"body":"body content","title":"A valid note"}}
+  creationTimestamp: "2026-05-01T04:01:02Z"
+  name: test-valid
+  namespace: default
+  uid: 4df7f5a9-d52d-43eb-b434-f4dec8d956cd
+spec:
+  body: body content
+  title: A valid note
+status:
+  updatedAt: "2026-05-01T04:01:02Z"
+
+==============================================================
+--- Scenario 2: middleware REJECTS (title >30 chars) ---
+    (backend cap is 64; without middleware this would pass)
+The Note "test-long-title" is invalid: spec.title: Invalid value: "test-long-title": spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64)
+
+==============================================================
+--- Scenario 3: middleware PASSES, backend REJECTS ---
+    (name "foo-hello" fails the backend's test-|prod- prefix rule;
+    middleware has no opinion on name)
+The Note "foo-hello" is invalid: []: Invalid value: "foo-hello": notes created in this cluster must have a name prefixed with "test-" or "prod-"; got "foo-hello" (the 0003 name-based CREATE policy case, enforced in admission because the authorizer cannot see the request body)
+
+==============================================================
+--- Scenario 4: mutation demo (spec.priority defaulted; annotations stamped) ---
+note.aggexp.io/test-mutate-demo created
+
+--- Scenario 4: kubectl get note test-mutate-demo -o yaml ---
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  annotations:
+    aggexp.io/accepted-at: "2026-05-01T04:01:02Z"
+    aggexp.io/middleware-stamped: "true"
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"aggexp.io/v1","kind":"Note","metadata":{"annotations":{},"name":"test-mutate-demo","namespace":"default"},"spec":{"body":"body content","title":"Mutation demo"}}
+  creationTimestamp: "2026-05-01T04:01:02Z"
+  name: test-mutate-demo
+  namespace: default
+  uid: dec4ffed-e76b-49ca-a0f7-7188ef0e0eff
+spec:
+  body: body content
+  title: Mutation demo
+status:
+  updatedAt: "2026-05-01T04:01:02Z"
+
+==============================================================
+--- Scenario 5: middleware REJECTS (required body missing on CREATE) ---
+The Note "test-no-body" is invalid: spec.body: Invalid value: "test-no-body": spec.body is required on CREATE (middleware rule; the backend merely warns)
+
+==============================================================
+--- multi-failure check: what does a 2-violation apply look like? ---
+The Note "test-multi" is invalid: 
+* spec.title: Invalid value: "test-multi": spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64)
+* spec.title: Invalid value: "test-multi": spec.title must not contain "BADWORD" (declarative content rule)
+* spec.body: Invalid value: "test-multi": spec.body is required on CREATE (middleware rule; the backend merely warns)
+
+==============================================================
+--- Raw HTTP 422 body for scenario 2 (-v=9 capture) ---
+	{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Note.aggexp.io \"test-long-title\" is invalid: spec.title: Invalid value: \"test-long-title\": spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64)","reason":"Invalid","details":{"name":"test-long-title","group":"aggexp.io","kind":"Note","causes":[{"reason":"FieldValueInvalid","message":"Invalid value: \"test-long-title\": spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64)","field":"spec.title"}]},"code":422}
+
+--- Raw HTTP 422 body for multi-failure case ---
+	{"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure","message":"Note.aggexp.io \"test-multi-raw\" is invalid: [spec.title: Invalid value: \"test-multi-raw\": spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64), spec.title: Invalid value: \"test-multi-raw\": spec.title must not contain \"BADWORD\" (declarative content rule), spec.body: Invalid value: \"test-multi-raw\": spec.body is required on CREATE (middleware rule; the backend merely warns)]","reason":"Invalid","details":{"name":"test-multi-raw","group":"aggexp.io","kind":"Note","causes":[{"reason":"FieldValueInvalid","message":"Invalid value: \"test-multi-raw\": spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64)","field":"spec.title"},{"reason":"FieldValueInvalid","message":"Invalid value: \"test-multi-raw\": spec.title must not contain \"BADWORD\" (declarative content rule)","field":"spec.title"},{"reason":"FieldValueInvalid","message":"Invalid value: \"test-multi-raw\": spec.body is required on CREATE (middleware rule; the backend merely warns)","field":"spec.body"}]},"code":422}
+
+==============================================================
+--- Middleware admission log from the component pod ---
+I0501 04:00:30.814831       1 server.go:152] loaded declarative admission: 2 mutations, 3 validations from /etc/aggexp/admission/admission-config.yaml
+
+==============================================================
+--- UPDATE path: middleware CEL runs on UPDATE too ---
+    Patch test-valid to a title >30 chars; rejected.
+The Note "test-valid" is invalid: spec.title: Invalid value: "test-valid": spec.title must be 30 characters or fewer (middleware rule; the backend's own cap is 64)
+
+--- UPDATE path: valid PATCH accepted ---
+note.aggexp.io/test-valid patched
+
+--- UPDATE path: annotation re-stamped (set is idempotent; accepted-at refreshed) ---
+{"aggexp.io/accepted-at":"2026-05-01T04:01:41Z","aggexp.io/middleware-stamped":"true","kubectl.kubernetes.io/last-applied-configuration":"{\"apiVersion\":\"aggexp.io/v1\",\"kind\":\"Note\",\"metadata\":{\"annotations\":{},\"name\":\"test-valid\",\"namespace\":\"default\"},\"spec\":{\"body\":\"body content\",\"title\":\"A valid note\"}}\n"}

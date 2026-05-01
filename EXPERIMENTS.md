@@ -134,7 +134,8 @@ promotion.
 - `0029-declarative-admission-in-config` — admission rules (CEL
   validations, JSONPath mutations) live in `APIDefinition` config;
   middleware evaluates without backend round-trip. Additive to
-  0020's backend-RPC admission.
+  0020's backend-RPC admission. Status: complete. See
+  `FINDINGS/0029-declarative-admission-in-config.md`.
 - `0030-runtime-component-v2-promotion` — substrate promotion. New
   `runtime/component/v2/` package embodying the arc's commitments.
 - `0031-runtime-component-v2-parity` — first post-promotion consumer.
@@ -362,6 +363,18 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   policy are enforceable via gRPC `Validate`/`Mutate` RPCs, with
   the reason string reaching kubectl verbatim as HTTP 422 Invalid.
   Status: complete. See `FINDINGS/0020-krm-admission-hook.md`.
+- **`0029-declarative-admission-in-config`** — adds a declarative
+  admission layer in the middleware (CEL validations + JSONPath
+  mutations) loaded from a YAML config at startup, composing
+  additively with 0020's backend-RPC admission (middleware runs
+  first; backend runs second; shared HTTP 422 wire shape).
+  Demonstrates that CEL-expressible rules need not touch the
+  backend at all, while cases CEL can't express fall through
+  to the backend RPCs unchanged. Surfaces a composition boundary:
+  middleware-only mutations on fields the backend's typed model
+  doesn't preserve are silently dropped by the backend's JSON
+  unmarshal — a contract issue, not a wire-level one. Status:
+  complete. See `FINDINGS/0029-declarative-admission-in-config.md`.
 - `authz-cache-latency` — add a TTL cache to the custom authorizer,
   measure round-trip latency under load, compare to library-
   provided SAR caching. Derived from `0003`.

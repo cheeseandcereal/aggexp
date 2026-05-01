@@ -1,0 +1,13 @@
+# Middleware mutation demo: submits a note WITHOUT spec.priority.
+# After admission, the stored object has spec.priority=normal
+# (middleware default) and the middleware-stamped annotation
+# aggexp.io/middleware-stamped=true AND the backend's
+# aggexp.io/accepted-at=<ts>.
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: test-mutate-demo
+  namespace: default
+spec:
+  title: "Mutation demo"
+  body: "body content"

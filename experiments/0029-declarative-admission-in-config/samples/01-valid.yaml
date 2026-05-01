@@ -1,0 +1,11 @@
+# Valid note: passes middleware (title <=30, body present, no BADWORD)
+# and backend (test- prefix, DNS-1123, title 3-64). Middleware mutation
+# defaults spec.priority=normal; backend mutation stamps accepted-at.
+apiVersion: aggexp.io/v1
+kind: Note
+metadata:
+  name: test-valid
+  namespace: default
+spec:
+  title: "A valid note"
+  body: "body content"

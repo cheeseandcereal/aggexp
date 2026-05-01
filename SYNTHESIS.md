@@ -75,6 +75,19 @@ Informed by twenty-seven experiments and two substrate promotions:
   the stitched Get 404s — they must edit the ResourceMetadata CR
   directly. That points at a middleware-side improvement
   (tolerant Get on backend-absent) rather than a GC fix.
+- `FINDINGS/0029-declarative-admission-in-config` —
+  middleware-evaluated admission (CEL validations + JSONPath
+  mutations) loaded from a YAML config at startup, composing
+  additively with 0020's backend-RPC admission (middleware runs
+  first, backend runs second, shared HTTP 422 wire shape with
+  multi-cause `field.ErrorList`). For backends whose rules are
+  all CEL-expressible, the backend's admission surface can go
+  from "two gRPC RPCs" to "zero RPCs". For backends with
+  external-lookup / cross-resource rules, the backend-RPC path
+  carries those exceptions; composition is additive, not
+  replacement. Surfaces a contract boundary: middleware
+  mutations on fields the backend's typed model doesn't preserve
+  are silently dropped by its JSON unmarshal.
 
 MVP-lab and MVP-example complete.
 
@@ -255,6 +268,19 @@ CRDs. The authz-aware-controllers threat model is narrower than
 controller-runtime's manager layer and the substrate's watch
 behavior under real reflectors are covered in the Watch and
 consistency semantics section below.
+
+**Admission denials share a single HTTP 422 wire shape across
+three layers** [`0020`, `0029`]: `apierrors.NewInvalid(gk, name,
+field.ErrorList{...})` in our middleware, `AdmissionResponse` in
+a kube-apiserver VAP, and `ValidateResponse{allowed:false}` in a
+backend RPC all emit the same `{"kind":"Status","reason":"Invalid",
+"code":422, "details":{"causes":[...]}}` body. `field.ErrorList`
+naturally carries multiple causes in a single response; kubectl
+formats the list as bullets and client-go's `apierrors.IsInvalid`
+recognizes any of them. From the client's perspective, the three
+admission layers are indistinguishable — which is architecturally
+desirable: every retry loop in controller-runtime / ArgoCD /
+custom controllers already handles this one shape.
 
 Open questions:
 
@@ -533,6 +559,22 @@ Four concrete sub-findings from `0003`:
    runs as an outer layer); opt-in via schema flags, not a
    cluster-level config object; fails closed on transport error.
 
+   **A second way to close the boundary**, `0029`: declarative
+   admission in middleware config (CEL validations + JSONPath
+   mutations). Evaluated locally, no backend round-trip. Composes
+   additively with `0020`'s backend RPCs: middleware runs first,
+   backend runs second; a denial at either stops the write. For
+   rules CEL can express (required fields, value ranges,
+   content-substring, cross-field constraints, default values),
+   the backend never sees the request at all. For rules that
+   need external lookups or cross-resource knowledge, the
+   backend-RPC path from `0020` is unchanged. The two are
+   complementary, not substitutes. Denial wire shape in both
+   paths: `apierrors.NewInvalid` → HTTP 422 with a
+   `field.ErrorList` for multi-cause reporting; kubectl and
+   client-go treat the shape identically to built-in validation
+   failures.
+
 **The operational hazard** [`0005`]: an AA whose default-deny
 policy applies to every unknown identity will **brick any
 cluster-wide controller that auto-discovers-and-watches every API
@@ -610,8 +652,20 @@ schema:
 - **Authorization vs. admission** [`0003`]. The authorizer sees
   request URL attributes; the object body belongs to admission.
   Policies depending on fields inside the object at CREATE time
-  need admission logic. The substrate does not yet surface an
-  admission hook.
+  need admission logic. Two concrete closures exist in the
+  component-server architecture: backend-RPC admission [`0020`]
+  and middleware-declared admission [`0029`]. The second makes
+  the backend's admission surface optional: a backend whose rules
+  are all CEL-expressible ships zero admission RPCs and lets the
+  middleware enforce everything from a YAML config. Rules CEL
+  cannot express (external lookups, cross-resource constraints)
+  fall through to the backend RPCs. Composition is additive.
+  Composition boundary: middleware mutations on fields the
+  backend's typed model doesn't preserve are silently dropped
+  by the backend's JSON unmarshal — a contract issue, addressed
+  either by backend-side unknown-field preservation or by
+  scoping mutations to pass-through paths like
+  `metadata.annotations`.
 - **Synchronous vs. asynchronous backend operations** [`0009`,
   `0011`]. Refined from the `0009` reading: the stateless-AA
   model handles async backends cleanly **if** Create returns
