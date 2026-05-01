@@ -19,6 +19,43 @@ Items without an `NNNN` prefix are candidates not yet started.
 
 ---
 
+## Stateful-middleware-refinement arc (0022-0031)
+
+A targeted arc refining the KRM middle-layer around the axiom that
+**state is required**. Separates three axes (wire protocol, KRM
+metadata state, business data) that the existing `runtime/component/`
+substrate conflates. Ends with `runtime/component/v2/` substrate
+promotion.
+
+- **`0022-stateful-middleware-thesis`** — arc kickoff. Go interface
+  sketch + design commitments. Status: complete. See
+  `FINDINGS/0022-stateful-middleware-thesis.md`.
+- `0023-schema-source-exploration` — probes three OpenAPI-source
+  paths (backend-ships-OpenAPI, config-ships-OpenAPI,
+  config-ships-JSONSchema-middleware-synthesizes) with tooling
+  ergonomics per language. Recommends one for the rest of the arc.
+- `0024-metadata-crd-store` — separates KRM metadata from business
+  data via a shared `ResourceMetadata` CRD; rebuilds 0018's S3
+  Bucket AA with middleware-managed metadata overlay.
+- `0025-push-backed-watch` — push-capable backend streams events
+  instead of middleware polling.
+- `0026-http-json-backend-transport` — HTTP/JSON + SSE transport
+  alongside gRPC.
+- `0027-multiplex-middleware-server` — one middleware, many AAs.
+  Reconciler watches `APIDefinition` CRDs, registers/deregisters
+  APIServices dynamically. Status written back to CRD.
+- `0028-metadata-store-gc` — garbage collects stale metadata CRD
+  entries when backend objects disappear out of band.
+- `0029-declarative-admission-in-config` — admission rules (CEL
+  validations, JSONPath mutations) live in `APIDefinition` config;
+  middleware evaluates without backend round-trip. Additive to
+  0020's backend-RPC admission.
+- `0030-runtime-component-v2-promotion` — substrate promotion. New
+  `runtime/component/v2/` package embodying the arc's commitments.
+- `0031-runtime-component-v2-parity` — first post-promotion consumer.
+
+---
+
 ## Wire protocol fidelity
 
 **`0001-raw-http-aggregation`** — hand-rolled Go `net/http` probe. No
