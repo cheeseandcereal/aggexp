@@ -46,8 +46,20 @@ promotion.
 - `0024-metadata-crd-store` — separates KRM metadata from business
   data via a shared `ResourceMetadata` CRD; rebuilds 0018's S3
   Bucket AA with middleware-managed metadata overlay.
-- `0025-push-backed-watch` — push-capable backend streams events
-  instead of middleware polling.
+- **`0025-push-backed-watch`** — two note-backend variants (poll
+  returns `codes.Unimplemented` from Watch; push streams events
+  on a fixed-schedule event generator) sharing one component
+  binary with a runtime watch-capability probe. Push mode
+  observes mutations at ~2 ms vs. 6–30 s (poll-interval-bounded)
+  in poll mode, and preserves intermediate events that poll mode
+  collapses into its list-diff snapshot. Middleware-side
+  `initial-events-end` BOOKMARK (emitted unconditionally from
+  the component's Watch handler, independent of backend
+  capability) closes the 0011 `kubectl wait --for=jsonpath` gap
+  for both variants. Surfaces a new fundamental: the current KRM
+  substrate has a resourceVersion authority split — Get/List
+  shows backend RVs, Watch shows middleware-counter RVs. Status:
+  complete. See `FINDINGS/0025-push-backed-watch.md`.
 - `0026-http-json-backend-transport` — HTTP/JSON + SSE transport
   alongside gRPC.
 - `0027-multiplex-middleware-server` — one middleware, many AAs.
@@ -382,11 +394,33 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
 - `hours-long-informer` — `0008` was 15-minutes-ish. What happens
   over many hours, through multiple backend poll cycles, several
   AA restarts, and genuine resource churn? Derived from `0008`.
-- `watch-initial-events-end-bookmark` — emit the
-  `k8s.io/initial-events-end` BOOKMARK annotation at the end of
-  the initial-events stream from `runtime/storage`, and confirm
-  `kubectl wait --for=jsonpath` (and WatchList-aware informers)
-  stop timing out. Substrate-level work; derived from `0011`.
+- `rv-authority-unification` — pick one resourceVersion
+  authority for the KRM component substrate. 0025 found the
+  current half-overwrite posture (Get/List returns
+  backend-supplied RVs; Watch returns middleware-counter RVs)
+  makes reflector relist-with-RV semantically inconsistent.
+  Default recommendation: middleware owns RV end-to-end;
+  backends' supplied RVs are advisory. Derived from `0025`.
+- `backend-pushes-bookmark-checkpoints` — push-capable backend
+  emits mid-stream BOOKMARK events at its own RV checkpoints;
+  middleware forwards them. Useful for long-lived watches where
+  the middleware-only initial-events-end bookmark isn't
+  enough. Low priority. Derived from `0025`.
+- `github-webhook-watch` — listed under Storage independence;
+  push-backed substrate from `0025` is the prerequisite.
+- `async-backend-sim-push` — redo `0011` with a push-capable
+  async backend; does the 0011 "double DELETE on stateless-AA"
+  observation change under backend-emitted phase=Deleting →
+  phase=Gone events? Derived from `0011` + `0025`.
+- ~~`watch-initial-events-end-bookmark`~~ — answered by `0025`
+  (as a side effect of the push-vs-poll probe). The fix is
+  ~10 semantic lines on the component's Watch handler: emit a
+  synthetic BOOKMARK event carrying
+  `metadata.annotations["k8s.io/initial-events-end"]="true"`
+  right after the initial-events prefix. No backend changes,
+  no wire-proto changes. 0030 substrate promotion should absorb
+  it. `kubectl wait --for=jsonpath` PASSes in ~0.177s for both
+  push and poll variants.
 
 **Retired candidates**:
 - ~~`watch-broadcaster-substrate`~~ — done; lives in
