@@ -1,0 +1,70 @@
+# Permissive RBAC for the multiplex middleware.
+#
+# The middleware SA needs:
+#   - GET/LIST/WATCH/PATCH on apidefinitions.aggexp.io (its own config CRD)
+#   - CREATE/UPDATE/DELETE/GET on apiservices.apiregistration.k8s.io
+#   - CREATE/UPDATE/DELETE/GET on resourcemetadatas.aggexpmeta.aggexp.io
+#     (the 0024 shared MetadataStore)
+#
+# Additionally, every caller (system:authenticated) gets broad
+# read/write on the exposed resource groups, because the multiplex
+# registers many groups and we don't want to hand-maintain RBAC per
+# demo kind.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: aggexp-multiplex-host }
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["apidefinitions", "apidefinitions/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["apiregistration.k8s.io"]
+    resources: ["apiservices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["aggexpmeta.aggexp.io"]
+    resources: ["resourcemetadatas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: aggexp-multiplex-host }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-multiplex-host
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+# Permissive RBAC for the demo resources exposed by the multiplex.
+# A ClusterRole whose resources list is the union of every kind any
+# APIDefinition registers. Because new groups are discovered at
+# runtime, we cover the demo set (widgets/gadgets/sprockets) up-front
+# and rely on the principle that extending this list at any time
+# does not break existing users.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: { name: aggexp-multiplex-clients }
+rules:
+  - apiGroups: ["widgets.aggexp.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["gadgets.aggexp.io"]
+    resources: ["*"]
+    verbs: ["*"]
+  - apiGroups: ["sprockets.aggexp.io"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: { name: aggexp-multiplex-clients }
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-multiplex-clients
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,9 @@
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: hello-widget
+  namespace: default
+spec:
+  title: "Hello Widget"
+  description: "First widget, dynamically registered via the 0027 multiplex middleware."
+  widgetColor: green

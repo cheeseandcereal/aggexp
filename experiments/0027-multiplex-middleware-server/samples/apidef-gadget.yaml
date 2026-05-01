@@ -1,0 +1,16 @@
+apiVersion: aggexp.io/v1
+kind: APIDefinition
+metadata:
+  name: gadgets.gadgets.aggexp.io
+spec:
+  group: gadgets.aggexp.io
+  version: v1
+  kind: Gadget
+  plural: gadgets
+  singular: gadget
+  scope: Namespaced
+  schemaSource: backendJSONSchema
+  backend:
+    transport: http
+    address: http://gadget-backend.aggexp-system.svc:8080
+  watchCapability: push

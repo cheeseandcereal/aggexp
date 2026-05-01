@@ -1,0 +1,9 @@
+apiVersion: gadgets.aggexp.io/v1
+kind: Gadget
+metadata:
+  name: hello-gadget
+  namespace: default
+spec:
+  title: "Hello Gadget"
+  description: "A dynamically-registered Gadget, distinct backend from widgets."
+  gadgetColor: blue

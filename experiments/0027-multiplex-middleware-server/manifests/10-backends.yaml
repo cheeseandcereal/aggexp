@@ -1,0 +1,120 @@
+# Three backend Deployments, one per demo resource kind. All use the
+# same image (aggexp-backend-http:dev) with differentiated env vars.
+#
+# They use port 8080 internally; services expose them on their own
+# ports so they don't collide.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: widget-backend
+  namespace: aggexp-system
+  labels: { app: widget-backend }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: widget-backend } }
+  template:
+    metadata: { labels: { app: widget-backend } }
+    spec:
+      containers:
+        - name: backend
+          image: ${WIDGET_BACKEND_IMAGE}
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: RESOURCE, value: "widget" }
+            - { name: PLURAL,   value: "widgets" }
+            - { name: KIND,     value: "Widget" }
+            - { name: GROUP,    value: "widgets.aggexp.io" }
+            - { name: VERSION,  value: "v1" }
+            - { name: PORT,     value: "8080" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: widget-backend, namespace: aggexp-system }
+spec:
+  selector: { app: widget-backend }
+  ports: [{ name: http, port: 8080, targetPort: 8080, protocol: TCP }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gadget-backend
+  namespace: aggexp-system
+  labels: { app: gadget-backend }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: gadget-backend } }
+  template:
+    metadata: { labels: { app: gadget-backend } }
+    spec:
+      containers:
+        - name: backend
+          image: ${GADGET_BACKEND_IMAGE}
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: RESOURCE, value: "gadget" }
+            - { name: PLURAL,   value: "gadgets" }
+            - { name: KIND,     value: "Gadget" }
+            - { name: GROUP,    value: "gadgets.aggexp.io" }
+            - { name: VERSION,  value: "v1" }
+            - { name: PORT,     value: "8080" }
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: gadget-backend, namespace: aggexp-system }
+spec:
+  selector: { app: gadget-backend }
+  ports: [{ name: http, port: 8080, targetPort: 8080, protocol: TCP }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sprocket-backend
+  namespace: aggexp-system
+  labels: { app: sprocket-backend }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: sprocket-backend } }
+  template:
+    metadata: { labels: { app: sprocket-backend } }
+    spec:
+      containers:
+        - name: backend
+          image: ${SPROCKET_BACKEND_IMAGE}
+          imagePullPolicy: IfNotPresent
+          env:
+            - { name: RESOURCE, value: "sprocket" }
+            - { name: PLURAL,   value: "sprockets" }
+            - { name: KIND,     value: "Sprocket" }
+            - { name: GROUP,    value: "sprockets.aggexp.io" }
+            - { name: VERSION,  value: "v1" }
+            - { name: PORT,     value: "8080" }
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: sprocket-backend, namespace: aggexp-system }
+spec:
+  selector: { app: sprocket-backend }
+  ports: [{ name: http, port: 8080, targetPort: 8080, protocol: TCP }]

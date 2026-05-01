@@ -1,0 +1,59 @@
+# Override the base aggexp Deployment with the multiplex image and
+# its flags. Also bind-mount the CA cert alongside the serving
+# cert so the middleware can stamp it into APIService.caBundle.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+  labels: { app: aggexp }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: aggexp } }
+  # Aggressive terminationGracePeriodSeconds so the middleware has
+  # time to run its PreShutdown hook (APIService sweep) before
+  # the pod is SIGKILLed.
+  strategy: { type: Recreate }
+  template:
+    metadata: { labels: { app: aggexp } }
+    spec:
+      serviceAccountName: aggexp
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: aggexp
+          image: ${AGGEXP_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/etc/aggexp/certs/tls.crt
+            - --tls-private-key-file=/etc/aggexp/certs/tls.key
+            - --bind-address=0.0.0.0
+            - --secure-port=8443
+            - --enable-priority-and-fairness=false
+            - --ca-path=/etc/aggexp/certs/ca.crt
+            - --service-name=aggexp
+            - --service-namespace=aggexp-system
+            - --shutdown-grace=20s
+            - --v=2
+          ports: [{ name: https, containerPort: 8443 }]
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/aggexp/certs
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8443, scheme: HTTPS }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /livez, port: 8443, scheme: HTTPS }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: aggexp-serving-cert
+            items:
+              - { key: tls.crt, path: tls.crt }
+              - { key: tls.key, path: tls.key }
+              - { key: ca.crt,  path: ca.crt }

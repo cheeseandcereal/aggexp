@@ -1,0 +1,9 @@
+apiVersion: sprockets.aggexp.io/v1
+kind: Sprocket
+metadata:
+  name: hello-sprocket
+  namespace: default
+spec:
+  title: "Hello Sprocket"
+  description: "Third demo resource in the multiplex arc."
+  sprocketColor: yellow
