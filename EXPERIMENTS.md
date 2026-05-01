@@ -98,6 +98,8 @@ promotion.
   complete. See `FINDINGS/0026-http-json-backend-transport.md`.
 - **`0027-multiplex-middleware-server`** — one middleware, many AAs.
   Reconciler watches `APIDefinition` CRDs, registers/deregisters
+- **`0027-multiplex-middleware-server`** — one middleware, many AAs.
+  Reconciler watches `APIDefinition` CRDs, registers/deregisters
   APIServices dynamically via `genericapiserver.InstallAPIGroup`
   at reconcile time, sweeps APIServices on SIGTERM via a
   PreShutdown hook. Three AAs (widgets/gadgets/sprockets, each
@@ -111,8 +113,24 @@ promotion.
   PrepareRun. Basic CRUD+list+watch+table render work cleanly.
   Status: complete. See
   `FINDINGS/0027-multiplex-middleware-server.md`.
-- `0028-metadata-store-gc` — garbage collects stale metadata CRD
-  entries when backend objects disappear out of band.
+- **`0028-metadata-store-gc`** — garbage collector for the 0024
+  metadata-CRD store. Periodic sweep lists metastore records for
+  one (group, resource), lists the backend via the existing
+  `Backend.List` RPC, diffs, and deletes records whose backend
+  object is absent. Four scenarios pass: happy path (no false
+  positives), partial orphan (one of three CRs cleaned), full
+  wipe (all records cleaned), finalizer protection (record with
+  finalizer is skipped). A grace-window (minAge, default 30s)
+  covers the polling-backend-lag race. Key consequent: when a
+  finalizer-protected orphan's backend is gone, kubectl patch of
+  the exposed resource fails (the stitched Get 404s through the
+  absent backend), so operators must edit the ResourceMetadata
+  CR directly to clear finalizers. Key finding: the
+  reconciliation between two independent state stores is
+  **fundamental** to the 0024 storage-axis variant, not an
+  optional polish. Mechanism is small (~300 LOC) and cheap
+  (2–13 ms sweeps at lab scale). Status: complete. See
+  `FINDINGS/0028-metadata-store-gc.md`.
 - `0029-declarative-admission-in-config` — admission rules (CEL
   validations, JSONPath mutations) live in `APIDefinition` config;
   middleware evaluates without backend round-trip. Additive to

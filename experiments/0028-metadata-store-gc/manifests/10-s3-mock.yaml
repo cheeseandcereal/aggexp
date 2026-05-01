@@ -1,0 +1,48 @@
+# S3 mock (copied from experiment 0009). Stands in for
+# api.s3.us-east-1.amazonaws.com during this experiment.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3-mock
+  namespace: aggexp-system
+  labels:
+    app: s3-mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: s3-mock
+  template:
+    metadata:
+      labels:
+        app: s3-mock
+    spec:
+      containers:
+        - name: s3-mock
+          image: ${S3_MOCK_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args: ["--addr=:8080"]
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 1
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3-mock
+  namespace: aggexp-system
+spec:
+  selector:
+    app: s3-mock
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

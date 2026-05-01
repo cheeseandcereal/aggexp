@@ -1,0 +1,10 @@
+# AWS credentials. Mock ignores them; SDK requires non-empty.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: aws-creds
+  namespace: aggexp-system
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: "test"
+  AWS_SECRET_ACCESS_KEY: "test"
