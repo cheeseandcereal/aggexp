@@ -1,0 +1,96 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: apidefinitions.aggexpapidefinition.aggexp.io
+spec:
+  group: aggexpapidefinition.aggexp.io
+  names:
+    kind: APIDefinition
+    listKind: APIDefinitionList
+    plural: apidefinitions
+    singular: apidefinition
+    shortNames:
+      - apidef
+  scope: Cluster
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            APIDefinition declares an aggregated API that the component
+            server will stand up. Matches the thesis.APIDefinition Go
+            type from experiments/0022-stateful-middleware-thesis/thesis.
+            Track C of experiment 0023 reads the openapiV3 field at
+            startup and uses it instead of calling backend.GetSchema.
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - group
+                - version
+                - resource
+                - kind
+                - singular
+                - openapiV3
+              properties:
+                group:
+                  type: string
+                  description: API group (e.g. "aggexp.io").
+                version:
+                  type: string
+                  description: API version (e.g. "v1").
+                resource:
+                  type: string
+                  description: Plural lowercase resource name (e.g. "notes").
+                kind:
+                  type: string
+                  description: CamelCase Kind (e.g. "Note").
+                singular:
+                  type: string
+                  description: Lowercase singular name (e.g. "note").
+                namespaced:
+                  type: boolean
+                  default: true
+                backendAddress:
+                  type: string
+                  description: |
+                    gRPC backend address. Informational only — the
+                    component binary takes this from a flag; storing
+                    it in the CRD is convenient for operators.
+                openapiV3:
+                  type: string
+                  description: |
+                    Full Kubernetes OpenAPI v3 JSON for the resource.
+                    Must include x-kubernetes-group-version-kind. No
+                    backend call is made to fetch schema when this
+                    field is present.
+                shortNames:
+                  type: array
+                  items:
+                    type: string
+                tableColumns:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - name
+                      - type
+                      - rowField
+                    properties:
+                      name:
+                        type: string
+                      type:
+                        type: string
+                      format:
+                        type: string
+                      description:
+                        type: string
+                      priority:
+                        type: integer
+                      rowField:
+                        type: string

@@ -30,10 +30,19 @@ promotion.
 - **`0022-stateful-middleware-thesis`** — arc kickoff. Go interface
   sketch + design commitments. Status: complete. See
   `FINDINGS/0022-stateful-middleware-thesis.md`.
-- `0023-schema-source-exploration` — probes three OpenAPI-source
-  paths (backend-ships-OpenAPI, config-ships-OpenAPI,
-  config-ships-JSONSchema-middleware-synthesizes) with tooling
-  ergonomics per language. Recommends one for the rest of the arc.
+- **`0023-schema-source-exploration`** — probes three OpenAPI-source
+  paths (backend-ships-OpenAPI, middleware-synthesizes from plain
+  JSON Schema, config-resident in an APIDefinition CRD) with tooling
+  ergonomics per language. All three produce identical kubectl
+  behavior (api-resources / apply / get / explain / SSA / watch).
+  **Recommends Track B (middleware synthesizes)** for the rest of
+  the arc: 0 Kubernetes concepts for the backend author, matches
+  mainstream JSON-Schema generators (pydantic / schemars /
+  zod-to-json-schema), single-artifact schema evolution, hard-
+  error failure mode at startup. Track C kept as an escape hatch
+  (`SchemaSourceConfig` stays in the enum); Track A deprecated for
+  new backends but wire-supported for 0017/0018/0019/0021. Status:
+  complete. See `FINDINGS/0023-schema-source-exploration.md`.
 - `0024-metadata-crd-store` — separates KRM metadata from business
   data via a shared `ResourceMetadata` CRD; rebuilds 0018's S3
   Bucket AA with middleware-managed metadata overlay.
