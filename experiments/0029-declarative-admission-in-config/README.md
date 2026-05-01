@@ -110,6 +110,9 @@ Teardown: `kind delete cluster --name aggexp-0029`.
 
 complete
 
+See `FINDINGS/0029-declarative-admission-in-config.md` for results
+and `demo.log` in this directory for the captured scenario output.
+
 ## Decisions made
 
 - **Static config file, no CRD reconciler.** 0027 has the dynamic
