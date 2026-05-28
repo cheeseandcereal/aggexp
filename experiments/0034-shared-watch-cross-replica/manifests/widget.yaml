@@ -1,0 +1,8 @@
+apiVersion: aggexp.io/v1
+kind: Widget
+metadata:
+  name: alpha
+  namespace: aggexp-widgets
+spec:
+  color: blue
+  size: 7
