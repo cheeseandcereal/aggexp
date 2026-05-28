@@ -65,7 +65,7 @@ kubectl -n aggexp-system rollout restart deployment aggexp
 
 ## Status
 
-in-progress
+complete
 
 ## Decisions made
 

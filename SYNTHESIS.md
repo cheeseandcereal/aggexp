@@ -574,9 +574,13 @@ Open questions:
 - Webhook-driven backends (GitHub pushes events; AWS has
   CloudTrail and EventBridge) could skip polling entirely.
   Untested.
-- Deterministic UIDs (hash of backend's stable ID) would preserve
-  identity across AA restarts. Not implemented. Promoted to
-  load-bearing-at-scale by `0012`'s phantom-reconcile finding.
+- Deterministic UIDs (`SHA256(group/resource/namespace/name)` formatted
+  as 8-4-4-4-12 hex) eliminate the pod-restart phantom-reconcile storm
+  [`0035`]. Validated: UIDs stable across multiple restarts; reflectors
+  see no delta; zero reconcile events fired. Same-UID-on-recreate is a
+  deliberate convention violation — harmless for stateless-projection
+  AAs where name IS identity. Promoted from candidate to validated
+  mechanism by `0012`'s "load-bearing at scale" observation.
 
 ---
 
