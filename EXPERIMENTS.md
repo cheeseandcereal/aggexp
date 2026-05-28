@@ -177,12 +177,15 @@ substrate promotion in Phase 3 if warranted.
   against a different replica), event ordering, and
   cross-replica latency. Independent of 0032/0033 locking
   models. Status: candidate.
-- `0035-deterministic-uids` — derive UIDs from backend-stable
-  identifiers (e.g. `SHA256(group + resource + namespace +
-  name)`) to eliminate the pod-restart phantom-reconcile storm
-  identified in `FINDINGS/0012`. Compares downstream
-  controller event counts before/after pod restart with random
-  vs deterministic UIDs. Status: candidate.
+- **`0035-deterministic-uids`** — derive UIDs from backend-stable
+  identifiers (`SHA256(group/resource/namespace/name)`) to eliminate
+  the pod-restart phantom-reconcile storm identified in
+  `FINDINGS/0012`. Compares downstream controller event counts
+  before/after pod restart with random vs deterministic UIDs.
+  Deterministic mode produces stable UIDs across restarts; random
+  mode produces 2*N phantom reconciles per restart. Same-UID-on-
+  recreate is a deliberate convention trade-off. Status: complete.
+  See `FINDINGS/0035-deterministic-uids.md`.
 - `0036-pagination-limit-continue` — implements `limit` +
   `continue` token pagination in the storage adapter, with
   point-in-time snapshot semantics and 410-on-stale-RV. Tests
@@ -368,9 +371,8 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   `FINDINGS/0011-async-backend-sim.md`.
 - `external-db-driver` — postgres-backed driver; real resourceVersion
   derived from a sequence.
-- `repo-uid-stability` — use a deterministic UID scheme derived
-  from the backend's stable ID and observe whether consumer
-  behavior after a pod restart improves. Derived from `0004`.
+- ~~`repo-uid-stability`~~ — answered by `0035`. Deterministic UIDs
+  eliminate phantom reconciles on pod restart. Derived from `0004`.
 - `github-rate-limit` — probe what happens when the poll loop
   actually hits GitHub's rate limit. What does the AA log? What
   do clients see? Does the cache go stale silently or visibly?
