@@ -72,3 +72,4 @@ vendor/
 
 # Bootstrap seed (retained intentionally; remove only when rewriting seed commit)
 # (no ignore; .aggexp-init/.gitkeep is tracked)
+experiments/0039-optimistic-concurrency/widget-aa
