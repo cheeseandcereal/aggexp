@@ -18,7 +18,7 @@ provide the evidence.
 
 ## Current state
 
-Informed by thirty experiments and three substrate promotions:
+Informed by thirty-nine experiments and three substrate promotions:
 
 - `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0021-runtime-component-parity`
   — see earlier listing.
@@ -120,6 +120,30 @@ Informed by thirty experiments and three substrate promotions:
   every load-bearing axis (fifth storage axis, unified RV,
   initial-events-end BOOKMARK, transport swap, declarative
   admission) under compositional load.
+- `FINDINGS/0032-lease-based-object-locking` through
+  `FINDINGS/0040-watchlist-and-consumer-watch` — the
+  production-library-readiness arc (nine experiments, 0032-0040).
+  Explores what a production-grade generic AA library needs
+  beyond `runtime/storage`. Key results:
+  - **Horizontal scaling**: Lease-based (0032) and CRD-CAS (0033)
+    per-object locking both work. Shared-watch via CRD informer
+    (0034) provides cross-replica watch consistency with ~4ms
+    latency. Host CRD RV is the unified authority.
+  - **Deterministic UIDs** (0035): eliminates phantom-reconcile
+    storms on pod restart. Zero cost.
+  - **Pagination** (0036): implementable in adapter layer (~160
+    LOC) without backend cooperation. Two substrate bugs surfaced
+    (ConvertToTable issues).
+  - **Field selectors** (0037): `AddFieldLabelConversionFunc` is
+    the hard gate; actual filtering is ~50 LOC.
+  - **Status subresource** (0038): `"widgets/status"` key in
+    Resources map is the entire mechanism. SSA tracks ownership
+    per subresource automatically.
+  - **Optimistic concurrency** (0039): ~180 LOC wrapper. Composes
+    with locking (locking = cross-replica; OCC = within-client).
+  - **WatchList + consumer watch** (0040): ~80 LOC wrapper fixes
+    `kubectl wait --for=jsonpath`. Poll-mode consumer watch
+    (~95 LOC) gives full watch semantics to read-only backends.
 
 MVP-lab and MVP-example complete.
 
