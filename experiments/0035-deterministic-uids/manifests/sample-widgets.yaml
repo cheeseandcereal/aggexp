@@ -1,0 +1,26 @@
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: alpha
+  namespace: default
+spec:
+  color: red
+  size: large
+---
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: beta
+  namespace: default
+spec:
+  color: blue
+  size: medium
+---
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: gamma
+  namespace: default
+spec:
+  color: green
+  size: small
