@@ -73,7 +73,7 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	fs.DurationVar(&o.LockRetrySleep, "lock-retry-sleep", o.LockRetrySleep, "Fixed sleep between CAS attempts.")
 	fs.StringVar(&o.PodName, "pod-name", o.PodName, "Override replica identity (default: POD_NAME env or hostname).")
 	fs.StringVar(&o.DebugAddr, "debug-addr", o.DebugAddr, "Bind addr for the /debug HTTP endpoint exposing CAS counters; empty disables.")
-	fs.StringVar(&o.KubeconfigPath, "kubeconfig", o.KubeconfigPath, "Path to a kubeconfig (overrides in-cluster).")
+	fs.StringVar(&o.KubeconfigPath, "lock-kubeconfig", o.KubeconfigPath, "Path to a kubeconfig for the locking layer (overrides in-cluster).")
 }
 
 // Validate composes substrate validation with our own.

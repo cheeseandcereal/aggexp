@@ -176,6 +176,14 @@ complete
   side by side.
 - **One AA module / one binary**: library-mode. No component-server
   split (that's the v2 path; the arc is v1).
+- **Lock CRDs under `locks.aggexp.io`, not `aggexp.io`.** Discovered
+  during deployment that the APIService for `v1.aggexp.io` captures
+  all resources in that group, so lock CRD requests would route back
+  to our AA recursively. Separate group avoids the trap.
+- **`--enable-priority-and-fairness=false`** to avoid needing RBAC
+  for FlowSchema/PriorityLevelConfiguration (standard lab shortcut).
+- **`--lock-kubeconfig` renamed from `--kubeconfig`** to avoid flag
+  collision with the substrate's own `--kubeconfig` registration.
 
 ## Prerequisites
 

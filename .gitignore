@@ -50,6 +50,7 @@ experiments/0013-krm-component-skeleton/component/aggexp-krm-component
 experiments/0013-krm-component-skeleton/component/cmd/aggexp-krm-component/aggexp-krm-component
 experiments/0013-krm-component-skeleton/backend-note/note-backend
 experiments/0013-krm-component-skeleton/backend-note/cmd/note-backend/note-backend
+experiments/0033-crd-cas-object-locking/aggexp-gizmos
 
 # Per-experiment ephemera: isolated kubeconfigs and run-captured artifacts.
 experiments/0016-aa-authz-aware-controllers/.kubeconfig-*

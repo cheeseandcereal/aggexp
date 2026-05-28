@@ -36,7 +36,7 @@ kind: ClusterRole
 metadata:
   name: aggexp-locking
 rules:
-  - apiGroups: ["aggexp.io"]
+  - apiGroups: ["locks.aggexp.io"]
     resources: ["objectlocks", "resourcelocks"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---

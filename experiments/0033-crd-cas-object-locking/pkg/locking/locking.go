@@ -65,12 +65,12 @@ const (
 // GVR for the two lock CRDs.
 var (
 	ObjectLockGVR = schema.GroupVersionResource{
-		Group:    "aggexp.io",
+		Group:    "locks.aggexp.io",
 		Version:  "v1",
 		Resource: "objectlocks",
 	}
 	ResourceLockGVR = schema.GroupVersionResource{
-		Group:    "aggexp.io",
+		Group:    "locks.aggexp.io",
 		Version:  "v1",
 		Resource: "resourcelocks",
 	}
