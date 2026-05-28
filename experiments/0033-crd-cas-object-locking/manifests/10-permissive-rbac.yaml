@@ -1,0 +1,54 @@
+# Permissive RBAC for the 0033 experiment.
+#
+# - aggexp.io/gizmos: open to system:authenticated for all verbs
+#   (the AA actually decides; this just tells kube-apiserver to
+#   delegate the SAR to us, which our authorizer then noopinions
+#   on so the default chain admits it).
+#
+# - aggexp.io/objectlocks and aggexp.io/resourcelocks: writable by
+#   the AA's ServiceAccount (aggexp/aggexp-system). The locking
+#   layer uses the AA's in-cluster client, not the user's identity.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-gizmos-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["gizmos"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-gizmos-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-gizmos-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-locking
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["objectlocks", "resourcelocks"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-locking
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-locking
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system

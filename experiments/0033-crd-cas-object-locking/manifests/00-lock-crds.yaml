@@ -1,0 +1,135 @@
+# Lock CRDs for experiment 0033.
+#
+# Two cluster-scoped kinds, both under the SAME APIGroup as the
+# exposed Gizmo (aggexp.io). That's deliberate: there is no
+# 0024-style 'put metadata under a different group' concern here,
+# because lock CRs are AA-internal — no ecosystem controller is
+# expected to track them. Putting them under aggexp.io keeps them
+# discoverable next to the resource they gate.
+#
+# - ObjectLock: per-object lock CR (one per Gizmo instance).
+#   Name format: <group-with-dashes>--<resource>--cluster--<name>
+#   (deterministic; sha256 fallback for too-long names).
+#
+# - ResourceLock: per-resource lock CR. Single instance for all
+#   Gizmo writes. Name format: <group-with-dashes>--<resource>.
+#
+# spec.resourceRef is descriptive only; the lock is keyed solely
+# by the CR's metadata.name.
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: objectlocks.aggexp.io
+spec:
+  group: aggexp.io
+  scope: Cluster
+  names:
+    kind: ObjectLock
+    listKind: ObjectLockList
+    singular: objectlock
+    plural: objectlocks
+    shortNames: ["olock"]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ObjectLock is a per-object write lock acquired via
+            resourceVersion-based CAS by a multi-replica AA. The
+            replica that owns a given lock is permitted to mutate
+            the referenced object. Lock acquisition is best-effort
+            and bounded; expired locks are stolen.
+          properties:
+            apiVersion: { type: string }
+            kind:       { type: string }
+            metadata:   { type: object }
+            spec:
+              type: object
+              required: ["lockedBy", "lockExpires"]
+              properties:
+                lockedBy:
+                  type: string
+                  description: Replica identity (POD_NAME or hostname). Empty means released.
+                lockExpires:
+                  type: string
+                  format: date-time
+                  description: Wall-clock time after which the lock is considered expired and stealable.
+                resourceRef:
+                  type: object
+                  description: Descriptive — identifies the gated object. Not used for matching.
+                  properties:
+                    group:     { type: string }
+                    resource:  { type: string }
+                    namespace: { type: string }
+                    name:      { type: string }
+      additionalPrinterColumns:
+        - name: LockedBy
+          type: string
+          jsonPath: .spec.lockedBy
+        - name: Expires
+          type: string
+          jsonPath: .spec.lockExpires
+        - name: Object
+          type: string
+          jsonPath: .spec.resourceRef.name
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: resourcelocks.aggexp.io
+spec:
+  group: aggexp.io
+  scope: Cluster
+  names:
+    kind: ResourceLock
+    listKind: ResourceLockList
+    singular: resourcelock
+    plural: resourcelocks
+    shortNames: ["rlock"]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ResourceLock is a per-resource write lock (one per
+            (group, resource) pair). Coarser than ObjectLock; all
+            writes to the resource type serialize through it.
+          properties:
+            apiVersion: { type: string }
+            kind:       { type: string }
+            metadata:   { type: object }
+            spec:
+              type: object
+              required: ["lockedBy", "lockExpires"]
+              properties:
+                lockedBy:
+                  type: string
+                lockExpires:
+                  type: string
+                  format: date-time
+                resourceRef:
+                  type: object
+                  properties:
+                    group:    { type: string }
+                    resource: { type: string }
+                    name:     { type: string }
+      additionalPrinterColumns:
+        - name: LockedBy
+          type: string
+          jsonPath: .spec.lockedBy
+        - name: Expires
+          type: string
+          jsonPath: .spec.lockExpires
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
