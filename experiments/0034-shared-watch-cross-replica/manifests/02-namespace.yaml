@@ -1,0 +1,6 @@
+# Namespace where Widget resources (and their backing WidgetStorage
+# CRs on the host cluster) live.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aggexp-widgets
