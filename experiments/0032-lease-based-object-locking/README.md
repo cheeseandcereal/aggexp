@@ -108,4 +108,4 @@ kubectl -n aggexp-system delete pod aggexp-0
 
 ## Status
 
-in-progress
+complete
