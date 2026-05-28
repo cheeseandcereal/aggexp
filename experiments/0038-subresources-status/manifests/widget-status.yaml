@@ -1,0 +1,8 @@
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: foo
+  namespace: default
+status:
+  phase: Active
+  message: "running smoothly"
