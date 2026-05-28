@@ -51,7 +51,8 @@ spec:
           image: aggexp-0032:latest
           imagePullPolicy: Never
           args:
-            - --secure-serving-cert-dir=/certs
+            - --tls-cert-file=/certs/tls.crt
+            - --tls-private-key-file=/certs/tls.key
             - --lock-mode=per-object
           env:
             - name: POD_NAME

@@ -128,70 +128,84 @@ func (lb *LockedBackend) acquire(ctx context.Context, lockName string) error {
 	dur := int32(LeaseDuration.Seconds())
 	now := metav1.NewMicroTime(time.Now())
 
-	// Try to create the Lease (fast path: no contention)
-	lease := &coordinationv1.Lease{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      lockName,
-			Namespace: LockNamespace,
-		},
-		Spec: coordinationv1.LeaseSpec{
-			HolderIdentity:       &lb.identity,
-			LeaseDurationSeconds: &dur,
-			AcquireTime:          &now,
-			RenewTime:            &now,
-		},
-	}
-	_, err := leases.Create(ctx, lease, metav1.CreateOptions{})
-	if err == nil {
-		klog.V(4).Infof("lock acquired (create): %s by %s", lockName, lb.identity)
+	// Retry loop handles the race between Create-fails-AlreadyExists
+	// and a concurrent release (Delete) making the Lease disappear
+	// between our Create-fail and our subsequent Get.
+	for attempts := 0; attempts < 3; attempts++ {
+		// Try to create the Lease (fast path: no contention)
+		lease := &coordinationv1.Lease{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      lockName,
+				Namespace: LockNamespace,
+			},
+			Spec: coordinationv1.LeaseSpec{
+				HolderIdentity:       &lb.identity,
+				LeaseDurationSeconds: &dur,
+				AcquireTime:          &now,
+				RenewTime:            &now,
+			},
+		}
+		_, err := leases.Create(ctx, lease, metav1.CreateOptions{})
+		if err == nil {
+			klog.V(4).Infof("lock acquired (create): %s by %s", lockName, lb.identity)
+			return nil
+		}
+		if !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("lock create failed: %w", err)
+		}
+
+		// Lease exists — check if we can take it (expired or we already hold it)
+		existing, err := leases.Get(ctx, lockName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				// Race: someone deleted the Lease between our Create and Get.
+				// Retry from the top.
+				klog.V(4).Infof("lock race (deleted between create and get): %s, retrying", lockName)
+				continue
+			}
+			return fmt.Errorf("lock get failed: %w", err)
+		}
+
+		holder := ""
+		if existing.Spec.HolderIdentity != nil {
+			holder = *existing.Spec.HolderIdentity
+		}
+
+		// Already ours?
+		if holder == lb.identity {
+			klog.V(4).Infof("lock already held: %s by %s", lockName, lb.identity)
+			return nil
+		}
+
+		// Check expiry
+		if existing.Spec.RenewTime != nil && existing.Spec.LeaseDurationSeconds != nil {
+			expiry := existing.Spec.RenewTime.Time.Add(time.Duration(*existing.Spec.LeaseDurationSeconds) * time.Second)
+			if time.Now().Before(expiry) {
+				// Lock is held by someone else and not expired
+				return apierrors.NewConflict(lb.gr, lockName,
+					fmt.Errorf("lock held by %s (expires %s)", holder, expiry.Format(time.RFC3339)))
+			}
+		}
+
+		// Expired — try to take over via CAS (update with resourceVersion)
+		existing.Spec.HolderIdentity = &lb.identity
+		existing.Spec.AcquireTime = &now
+		existing.Spec.RenewTime = &now
+		existing.Spec.LeaseDurationSeconds = &dur
+		_, err = leases.Update(ctx, existing, metav1.UpdateOptions{})
+		if err != nil {
+			if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+				// CAS lost or Lease deleted mid-takeover; retry
+				klog.V(4).Infof("lock CAS race: %s, retrying", lockName)
+				continue
+			}
+			return fmt.Errorf("lock update failed: %w", err)
+		}
+		klog.V(4).Infof("lock acquired (takeover): %s by %s", lockName, lb.identity)
 		return nil
 	}
-	if !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("lock create failed: %w", err)
-	}
-
-	// Lease exists — check if we can take it (expired or we already hold it)
-	existing, err := leases.Get(ctx, lockName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("lock get failed: %w", err)
-	}
-
-	holder := ""
-	if existing.Spec.HolderIdentity != nil {
-		holder = *existing.Spec.HolderIdentity
-	}
-
-	// Already ours?
-	if holder == lb.identity {
-		klog.V(4).Infof("lock already held: %s by %s", lockName, lb.identity)
-		return nil
-	}
-
-	// Check expiry
-	if existing.Spec.RenewTime != nil && existing.Spec.LeaseDurationSeconds != nil {
-		expiry := existing.Spec.RenewTime.Time.Add(time.Duration(*existing.Spec.LeaseDurationSeconds) * time.Second)
-		if time.Now().Before(expiry) {
-			// Lock is held by someone else and not expired
-			return apierrors.NewConflict(lb.gr, lockName,
-				fmt.Errorf("lock held by %s (expires %s)", holder, expiry.Format(time.RFC3339)))
-		}
-	}
-
-	// Expired — try to take over via CAS (update with resourceVersion)
-	existing.Spec.HolderIdentity = &lb.identity
-	existing.Spec.AcquireTime = &now
-	existing.Spec.RenewTime = &now
-	existing.Spec.LeaseDurationSeconds = &dur
-	_, err = leases.Update(ctx, existing, metav1.UpdateOptions{})
-	if err != nil {
-		if apierrors.IsConflict(err) {
-			return apierrors.NewConflict(lb.gr, lockName,
-				fmt.Errorf("lock CAS failed (concurrent takeover)"))
-		}
-		return fmt.Errorf("lock update failed: %w", err)
-	}
-	klog.V(4).Infof("lock acquired (takeover): %s by %s", lockName, lb.identity)
-	return nil
+	return apierrors.NewConflict(lb.gr, lockName,
+		fmt.Errorf("lock acquisition failed after retries (concurrent contention)"))
 }
 
 // release deletes or clears the Lease after a write completes.

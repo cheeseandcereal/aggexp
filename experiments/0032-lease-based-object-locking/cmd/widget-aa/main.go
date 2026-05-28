@@ -25,6 +25,7 @@ import (
 
 	"github.com/cheeseandcereal/aggexp/experiments/0032-lease-based-object-locking/pkg/backend"
 	"github.com/cheeseandcereal/aggexp/experiments/0032-lease-based-object-locking/pkg/locker"
+	genopenapi "github.com/cheeseandcereal/aggexp/experiments/0032-lease-based-object-locking/pkg/openapi"
 	"github.com/cheeseandcereal/aggexp/experiments/0032-lease-based-object-locking/pkg/types"
 	"github.com/cheeseandcereal/aggexp/runtime/group"
 	runtimeserver "github.com/cheeseandcereal/aggexp/runtime/server"
@@ -59,6 +60,18 @@ func init() {
 			*b.(*types.WidgetList) = *a.(*types.WidgetList)
 			return nil
 		}))
+
+	// Register unversioned types required by the apiserver machinery
+	metav1.AddToGroupVersion(scheme, schema.GroupVersion{Version: "v1"})
+	unversioned := schema.GroupVersion{Group: "", Version: "v1"}
+	utilruntime.Must(scheme.SetVersionPriority(unversioned))
+	scheme.AddUnversionedTypes(unversioned,
+		&metav1.Status{},
+		&metav1.APIVersions{},
+		&metav1.APIGroupList{},
+		&metav1.APIGroup{},
+		&metav1.APIResourceList{},
+	)
 }
 
 type options struct {
@@ -119,8 +132,9 @@ func (o *options) run(ctx context.Context) error {
 		ctx,
 		"aggexp-0032-widget-aa",
 		runtimeserver.Input{
-			Scheme: scheme,
-			Codecs: codecs,
+			Scheme:             scheme,
+			Codecs:             codecs,
+			OpenAPIDefinitions: genopenapi.GetOpenAPIDefinitions,
 		},
 		[]runtimeserver.GroupInstaller{g},
 		map[string]runtimeserver.PostStartFunc{

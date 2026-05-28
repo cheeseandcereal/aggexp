@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/cheeseandcereal/aggexp v0.0.0
+	github.com/cheeseandcereal/aggexp/experiments/0007-runtime-fs-driver v0.0.0-20260501053227-7cd4847a29e2
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
@@ -13,6 +14,7 @@ require (
 	k8s.io/client-go v0.32.3
 	k8s.io/component-base v0.32.3
 	k8s.io/klog/v2 v2.130.1
+	k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f
 )
 
 require (
@@ -91,7 +93,6 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/kms v0.32.3 // indirect
-	k8s.io/kube-openapi v0.0.0-20241105132330-32ad38e42d3f // indirect
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
@@ -100,3 +101,5 @@ require (
 )
 
 replace github.com/cheeseandcereal/aggexp => ../..
+
+replace github.com/cheeseandcereal/aggexp/experiments/0007-runtime-fs-driver => ../0007-runtime-fs-driver
