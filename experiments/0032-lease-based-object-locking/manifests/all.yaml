@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aggexp-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aggexp-locks
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+---
+# Permissive RBAC for the AA to manage Leases and serve APIs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+# StatefulSet for stable pod names (aggexp-0, aggexp-1)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+spec:
+  replicas: 2
+  serviceName: aggexp-headless
+  selector:
+    matchLabels:
+      app: aggexp
+  template:
+    metadata:
+      labels:
+        app: aggexp
+    spec:
+      serviceAccountName: aggexp
+      containers:
+        - name: aa
+          image: aggexp-0032:latest
+          imagePullPolicy: Never
+          args:
+            - --secure-serving-cert-dir=/certs
+            - --lock-mode=per-object
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - containerPort: 8443
+              name: https
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: aggexp-certs
+---
+# Headless Service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp-headless
+  namespace: aggexp-system
+spec:
+  clusterIP: None
+  selector:
+    app: aggexp
+  ports:
+    - port: 8443
+      targetPort: 8443
+---
+# Regular Service for aggregation layer
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+spec:
+  selector:
+    app: aggexp
+  ports:
+    - port: 443
+      targetPort: 8443
+---
+# APIService registration
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1.widgets.aggexp.io
+spec:
+  group: widgets.aggexp.io
+  version: v1
+  groupPriorityMinimum: 1000
+  versionPriority: 100
+  service:
+    name: aggexp
+    namespace: aggexp-system
+  insecureSkipTLSVerify: true
