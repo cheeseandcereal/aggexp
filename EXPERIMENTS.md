@@ -147,6 +147,71 @@ promotion.
   passed. Status: complete. See
   `FINDINGS/0031-runtime-component-v2-parity.md`.
 
+## Production-library-readiness arc (0032-0040)
+
+This arc explores what a production-grade generic AA library
+needs beyond what `runtime/storage` currently provides. Scope is
+the v1 library-mode path (direct Go implementation of the
+Backend interface, linked into the same binary). v2 frozen for
+the duration. Findings inform a future substrate promotion (v3
+or `runtime/library/`).
+
+Phasing: 0032/0033/0034 parallel (Phase 0); 0035/0036/0037
+parallel (Phase 1); 0038/0039/0040 parallel (Phase 2);
+substrate promotion in Phase 3 if warranted.
+
+- `0032-lease-based-object-locking` — multi-replica AA using
+  Kubernetes `coordination.k8s.io/v1 Lease` objects for write
+  ownership. Explores both per-object Leases and per-resource
+  Leases. Tests acquisition latency, contention behavior, and
+  holder-crash recovery via leaseDuration. Status: candidate.
+- `0033-crd-cas-object-locking` — multi-replica AA using a
+  custom CR + `resourceVersion`-based CAS for write ownership.
+  Explores both per-object CRs and per-resource CRs. Compares
+  retry-storm behavior and ergonomics against 0032. Status:
+  candidate.
+- `0034-shared-watch-cross-replica` — multi-replica AA where
+  each replica watches a shared CRD store and locally
+  re-broadcasts events to its own watch clients. Tests watch
+  consistency under load-balanced clients (kubectl `-w` resumed
+  against a different replica), event ordering, and
+  cross-replica latency. Independent of 0032/0033 locking
+  models. Status: candidate.
+- `0035-deterministic-uids` — derive UIDs from backend-stable
+  identifiers (e.g. `SHA256(group + resource + namespace +
+  name)`) to eliminate the pod-restart phantom-reconcile storm
+  identified in `FINDINGS/0012`. Compares downstream
+  controller event counts before/after pod restart with random
+  vs deterministic UIDs. Status: candidate.
+- `0036-pagination-limit-continue` — implements `limit` +
+  `continue` token pagination in the storage adapter, with
+  point-in-time snapshot semantics and 410-on-stale-RV. Tests
+  whether pagination can be added in the library layer without
+  backend support. Status: candidate.
+- `0037-field-selectors` — extends `ListOptions` with
+  `FieldSelector` and adds a `SelectableFields() []string`
+  method to the Backend interface. Defensive middleware-side
+  filtering matches the existing label-selector pattern. Tests
+  `metadata.name`/`metadata.namespace` implicit support and
+  rejection of unknown fields with 422. Status: candidate.
+- `0038-subresources-status` — `/status` subresource pattern.
+  Separate Update paths for spec vs status, each tracking own
+  managedFields. Probes whether `runtime/group` supports
+  subresource registration today and what the minimum
+  genericapiserver wiring is. Status: candidate.
+- `0039-optimistic-concurrency` — RV-conflict detection on
+  Update in the storage adapter. Two concurrent stale-RV
+  updaters: one wins (200), one gets 409 Conflict. Composes
+  with 0032/0033's locking models (locking prevents
+  cross-replica conflicts; optimistic concurrency prevents
+  stale-read-then-write within one client). Status: candidate.
+- `0040-watchlist-and-consumer-watch-interface` — closes
+  `kubectl wait --for=jsonpath` for v1 by emitting the
+  `initial-events-end` BOOKMARK (the v2 fix from 0025
+  back-ported). Respects `allowWatchBookmarks=false`.
+  Demonstrates push vs poll consumer-side watch ergonomics.
+  Status: candidate.
+
 ---
 
 ## Wire protocol fidelity
