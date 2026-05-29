@@ -329,7 +329,15 @@ do not collide.
   multiplication, under realistic event / write / watcher counts.
   Finds the scaling ceiling. Largely consequent (tied to host etcd
   performance) but operationally load-bearing. Builds on 0043 and
-  0044. Status: in-progress.
+  0044. Status: complete — exactly 2 metadata-CR writes per served
+  write (acquire + commit-release) + 1 body-CR write = 3 host writes
+  per served write, flat across rate; renewal adds ~3·(op/lease) writes
+  per slow op. Per-watcher watch produced ZERO extra metadata-CR writes
+  (it is read-only against the RV authority), so watcher scale and write
+  scale are independent axes. The first binding ceiling is lock-
+  contention fail-fast on hot objects (~96 writes/s, ~32 writers), not
+  etcd write bandwidth (which scaled to ~254 writes/s uncontended). See
+  `FINDINGS/0047-host-etcd-write-ceiling.md`.
 - **`0048-library-multireplica-vertical-slice`** — capstone: compose
   0042 (RV authority) + 0043 (embedded lock) + 0044 (per-watcher
   watch) + 0045 (read-path reconcile) and the 0046-generated types
@@ -339,7 +347,20 @@ do not collide.
   controller-runtime reconcile loop. Answers whether the fragments
   compose without mutual interference (the integration question
   0031/0041 asked for their respective arcs). Primary fundamental:
-  wire protocol fidelity. Builds on 0042-0046. Status: in-progress.
+  wire protocol fidelity. Builds on 0042-0046. Status: complete — the
+  happy path is indistinguishable from a built-in across kubectl,
+  client-go reflector, and controller-runtime (incl. SSA, explain,
+  wait, finalizers, pod-restart-under-watch with UID/RV persistence);
+  compat scoreboard all-`expect` PASS (`FINDINGS/compat/2026-05-29.md`).
+  Composition surfaced three interferences the isolated experiments
+  missed: (1) a generated bare-`$ref` nested object breaks strict-decode
+  + SSA typed-converter (0046 only exercised scalars); (2) the embedded
+  lock serializes *acquisition* but not the post-acquire body+commit
+  writes, so genuine cross-replica losers can get 500s, not clean 409s
+  (only the acquire path retries); (3) the per-watcher source can race
+  ahead of the metadata informer, so a fresh object's first ADDED can
+  carry an empty UID. See
+  `FINDINGS/0048-library-multireplica-vertical-slice.md`.
 
 ---
 
