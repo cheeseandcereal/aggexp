@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aggexp-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+---
+# Permissive RBAC for the AA (lab convenience; not a production posture).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-0046-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+# Allow the AA to delegate authn/authz to the host kube-apiserver.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-0046-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aggexp-0046-extension-apiserver-authentication-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aggexp
+  template:
+    metadata:
+      labels:
+        app: aggexp
+    spec:
+      serviceAccountName: aggexp
+      containers:
+        - name: aa
+          image: aggexp-0046:latest
+          imagePullPolicy: Never
+          args:
+            - --tls-cert-file=/certs/tls.crt
+            - --tls-private-key-file=/certs/tls.key
+          ports:
+            - containerPort: 8443
+              name: https
+          volumeMounts:
+            - name: certs
+              mountPath: /certs
+              readOnly: true
+      volumes:
+        - name: certs
+          secret:
+            secretName: aggexp-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+spec:
+  selector:
+    app: aggexp
+  ports:
+    - port: 443
+      targetPort: 8443
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1.widgets.aggexp.io
+spec:
+  group: widgets.aggexp.io
+  version: v1
+  groupPriorityMinimum: 1000
+  versionPriority: 100
+  service:
+    name: aggexp
+    namespace: aggexp-system
+  insecureSkipTLSVerify: true

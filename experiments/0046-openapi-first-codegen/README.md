@@ -12,12 +12,12 @@ Independent of the rest of the arc; can run in parallel from day one.
 
 ## Status
 
-in-progress
+complete
 
 <!-- valid values: in-progress, complete, abandoned -->
-<!-- Scaffolded brief: hypothesis + run plan written; implementation
-     (the generator, sample input, generated output, verifier AA)
-     pending. -->
+<!-- All four scenarios (explain, server-side apply + managedFields +
+     conflict detection, field/label selectors, reproducibility) passed
+     on kind cluster aggexp-0046. See FINDINGS/0046. -->
 
 ## Prior findings this builds on
 
@@ -159,14 +159,45 @@ kind delete cluster --name aggexp-0046
 ## Decisions made
 
 - Schema source: OpenAPI v3, single file (external `$ref`s rejected in
-  v1).
-- OpenAPI-parsing tooling-of-record: choose and record at start
-  (candidate `getkin/kin-openapi`).
-- `oneOf`/`anyOf`/arbitrary `allOf` rejected in v1 (conservative; easy
-  to relax later).
-- Generated files carry a `// Code generated ... DO NOT EDIT.` header
-  and the input OpenAPI SHA-256 in `doc.go`.
-- Own `go.mod` for dependency isolation (document the dependency).
+  v1; only intra-document `#/components/schemas/...` refs resolve).
+- OpenAPI-parsing tooling-of-record: **`github.com/getkin/kin-openapi`
+  v0.131.0**. It is the README's named candidate, parses v3 natively,
+  resolves `$ref`s, and rejects external refs by default
+  (`IsExternalRefsAllowed=false`). Pinned to an explicit version for
+  reproducibility. Confined to the experiment's own `go.mod`; the
+  generated output depends only on apimachinery + kube-openapi, so the
+  substrate never inherits the parser.
+- Group/version/kind: `widgets.aggexp.io` / `v1` / `Widget`, plural
+  `widgets`, namespaced. Spec component `WidgetSpec`, status component
+  `WidgetStatus` (declared in `testdata/oapigen.yaml`).
+- Dual-version registration uses the **0037 model**: the same generated
+  Go type is registered under both the external GV and the internal
+  (`runtime.APIVersionInternal`) GV, with identity (deep-copy)
+  conversions. This is the SSA/PATCH-load-bearing internal hub from
+  0002/0017, generated mechanically. (A separate internal *package* was
+  prototyped and rejected — nested struct fields make cross-package
+  struct conversions non-trivial; same-type-under-both-GVs is simpler
+  and proven.)
+- `oneOf`/`anyOf`/arbitrary `allOf`/`not` rejected in v1 with a clear
+  error. Map values restricted to scalars; array items to scalar-or-
+  `$ref`. Free-form `object` (no properties, no additionalProperties)
+  maps to `map[string]interface{}`.
+- Optional scalar/`$ref` fields (not required, no default) become Go
+  pointers with `,omitempty`; required fields are non-pointer with no
+  `,omitempty`.
+- Deterministic output (sorted struct/enum/field/dependency order, no
+  clock/host/randomness) → byte-identical across runs. Generated files
+  carry `// Code generated ... DO NOT EDIT.` and the input OpenAPI
+  SHA-256 is recorded in `doc.go`.
+- The generated OpenAPI defs reuse the substrate's baseline meta/v1
+  definitions (`runtime/component/v2/openapi.BaselineDefinitions`)
+  rather than regenerating ~2,700 lines of meta types; only the
+  Widget/WidgetList/WidgetSpec/WidgetStatus/nested defs are emitted,
+  each GVK-stamped with `Dependencies` and `ref(...)` callbacks.
+- verify-aa wires the generated package onto `runtime/library`
+  (chosen over `runtime/storage` because it natively supports field
+  selectors + optimistic concurrency, which scenarios 2 and 3 need).
+- The v1 supported-subset boundary: see FINDINGS/0046.
 
 ## Prerequisites
 
