@@ -12,11 +12,7 @@ core this experiment establishes.
 
 ## Status
 
-in-progress
-
-<!-- valid values: in-progress, complete, abandoned -->
-<!-- Scaffolded brief: hypothesis + run plan written; implementation
-     (go.mod, cmd/, pkg/, manifests/, Dockerfile, hack/) pending. -->
+complete
 
 ## Prior findings this builds on
 
@@ -173,18 +169,51 @@ kind delete cluster --name aggexp-0042
 
 ## Decisions made
 
-- Metadata CR group: a dedicated group distinct from the served
-  group (an APIService claims an entire group/version, so the served
-  group cannot also host the metadata CRD; same constraint 0034 and
-  0010 hit). Pick a `*meta.aggexp.io` group at implementation start and
-  record it here.
+- **Served group:** `aggexp.io/v1`, resource `widgets` (namespace-scoped
+  `Widget`, `WidgetSpec{Color,Size}` + `WidgetStatus{Phase}`).
+- **Metadata CR group:** `widgetmeta.aggexp.io/v1`, cluster-scoped
+  `ResourceMetadata` (plural `resourcemetadatas`). Distinct from the
+  served group because an APIService claims an entire group/version.
 - Metadata CR is **cluster-scoped**; the served object's namespace is a
-  field on the record (per 0024).
-- 3-replica StatefulSet with per-pod Services for replica-pinning (the
-  0034 approach), so cross-replica RV behavior is testable.
+  field on `spec.resourceRef` (per 0024). Record name format:
+  `<group-with-dashes>.<resource>.<namespace-or-cluster>.<name>` with a
+  sha256 fallback for over-length names.
+- **DEVIATION from the original sketch — body is a SECOND shared CRD,
+  not a per-replica in-memory map.** The README's architecture diagram
+  showed an "in-memory Widget backend (per replica)". That does not
+  compose with cross-replica reads: a write that lands on replica 0
+  leaves replicas 1/2 with the metadata CR (via informer) but no body,
+  so Get on a non-writer replica 404s. Confirmed empirically before
+  the change. Resolution (chosen interactively): the body lives on a
+  separate cluster-scoped CRD `widgetbodies.widgetbody.aggexp.io/v1`,
+  read by every replica via its own informer. The body store is
+  RV-BLIND: the body CR's resourceVersion is read but DISCARDED; only
+  the metadata CR's RV is ever surfaced. This keeps the 0024 split
+  (metadata in one CR, body in another, stitched on read) while making
+  the body cross-replica consistent.
+- **RV authority:** every served Widget's `metadata.resourceVersion`
+  is the host etcd RV of its metadata CR. List stamps
+  `ListMeta.resourceVersion` from the metastore high-water mark
+  (informer-observed). Watch events carry the metadata CR's RV.
+- **No 410 on unknown resume RV** — replay current list-state (the
+  0034 contract). Verified: a watch resumed on replica 2 with an RV
+  minted on replica 0 returns no 410 and delivers a write made through
+  replica 1.
 - Informer resync 30s; broadcaster size 100 (0002/0010/0034 defaults).
-- Do **not** 410 on unknown resume RV; replay current list-state (0034
-  contract). Record any deviation here.
+- Watch events are driven ONLY by the metadata-CR informer (that is
+  where the RV authority lives). The body CRD's informer exists purely
+  to make Get/List cross-replica consistent; it does NOT fan out watch
+  events.
+- **APIService `insecureSkipTLSVerify: true`.** When pinned to a
+  per-pod Service (`aggexp-0/1/2`), the aggregation layer dials
+  `aggexp-N.aggexp-system.svc`, which is not in the lab serving cert's
+  SAN list (only `aggexp.aggexp-system.svc`). Rather than regenerate
+  certs with per-pod SANs (the 0034 approach), 0042 skips TLS
+  verification on the aggregation hop. Lab convenience, not a security
+  posture.
+- Body CR name format: `body.<namespace-or-cluster>.<name>` with a
+  sha256 fallback.
+
 
 ## Prerequisites
 

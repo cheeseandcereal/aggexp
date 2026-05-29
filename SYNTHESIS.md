@@ -870,6 +870,38 @@ serialization (per-Record lock or CAS on the Record's
 resourceVersion at GC-delete time) would close it definitively.
 Filed under "heals on next sweep" for now.
 
+**The host metadata-CR's etcd resourceVersion is a sound single RV
+authority for multi-replica watch, and this generalizes from
+whole-object storage to the stitched metadata/body split**
+[`0034`, `0042`]. 0034 established it over a whole-object storage
+CRD; 0042 confirmed it for the 0024 stitched model (KRM metadata on
+a cluster-scoped CR, business body on a separate backend). With the
+metadata CR's RV stamped uniformly on Get/List/Watch — never a
+backend RV, never a per-replica `atomic.Uint64` — three replicas
+serve byte-identical objects, list at the same high-water RV, and
+honor cross-replica resume-by-RV with no 410: an RV minted on
+replica A and a write committed through replica B are both correctly
+interpreted by a watch resumed on replica C, because all replicas
+observe the same monotonic etcd RV stream through their informers.
+Cross-replica propagation is effectively instantaneous (sub-0.15 ms
+between replicas; all informers fire off the same etcd watch). This
+**closes the 0025 Get/List-vs-Watch RV split** for the stitched
+model: the resolution is to designate exactly one RV — the metadata
+CR's — as the authority and surface no other.
+
+The 0042 caveat sharpens **storage independence**: multi-replica
+read consistency requires every stitched component to be on *shared*
+storage, not merely *separate* storage. 0042's first cut put the
+body in a per-replica in-memory map; a write that landed on one
+replica was invisible (404) on the others even though the metadata
+CR (and its RV) had fully replicated. Moving the body to a second
+shared cluster-scoped CRD — read by every replica via its own
+informer, with the body CR's own RV read but discarded — fixed it.
+A separate-but-node-local backend reintroduces the per-replica state
+dependency that the aggregated-API architecture is meant to avoid;
+RV authority alone does not make an object readable on a replica
+that never saw the body.
+
 Still unmeasured:
 
 - CA rotation with simultaneous `APIService.caBundle` rotation.

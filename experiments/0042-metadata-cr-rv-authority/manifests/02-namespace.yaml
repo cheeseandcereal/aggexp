@@ -1,0 +1,7 @@
+# Namespace where Widget resources live. The Widget body is held in
+# the AA's in-memory backend keyed by namespace/name; the metadata CR
+# is cluster-scoped and records the namespace as a field.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aggexp-widgets
