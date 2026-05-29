@@ -1,0 +1,130 @@
+# Metadata CRD for experiment 0048 (capstone) — cluster-scoped, in a
+# DEDICATED group (widgetmeta.aggexp.io) distinct from the served group
+# (widgets.aggexp.io). An APIService claims an entire group/version, so
+# the metadata CRD cannot live in the served group. One instance per
+# served Widget; carries the KRM metadata overlay PLUS the embedded
+# write lock (spec.lock, 0043) and the observed body hash
+# (spec.observed.bodyHash, 0043). The business body lives on the
+# separate body CRD.
+#
+# The metadata CR's own metadata.resourceVersion (host etcd RV) is the
+# single RV authority for the stitched Widget (0042).
+#
+# CRITICAL (FINDINGS/0043): spec.required is ["resourceRef"] ONLY, not
+# ["resourceRef","metadata"]. The embedded lock CAS-creates a CR
+# carrying only resourceRef + lock (metadata isn't known until commit),
+# so requiring metadata would reject lock acquisition on Create.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: resourcemetadatas.widgetmeta.aggexp.io
+spec:
+  group: widgetmeta.aggexp.io
+  scope: Cluster
+  names:
+    kind: ResourceMetadata
+    listKind: ResourceMetadataList
+    singular: resourcemetadata
+    plural: resourcemetadatas
+    shortNames: ["rmeta"]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ResourceMetadata holds KRM metadata, an embedded per-object
+            write lock, and an observed body hash for experiment 0048's
+            composed aggregated apiserver. The metadata CR's own
+            resourceVersion is the authoritative RV of the stitched
+            Widget.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required: ["resourceRef"]
+              properties:
+                resourceRef:
+                  type: object
+                  required: ["group", "resource", "name"]
+                  properties:
+                    group:
+                      type: string
+                    resource:
+                      type: string
+                    namespace:
+                      type: string
+                    name:
+                      type: string
+                metadata:
+                  type: object
+                  properties:
+                    uid:
+                      type: string
+                    creationTimestamp:
+                      type: string
+                      format: date-time
+                    deletionTimestamp:
+                      type: string
+                      format: date-time
+                    labels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    annotations:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    finalizers:
+                      type: array
+                      items:
+                        type: string
+                    managedFields:
+                      type: string
+                    ownerReferences:
+                      type: string
+                lock:
+                  type: object
+                  properties:
+                    holderIdentity:
+                      type: string
+                    acquiredAt:
+                      type: string
+                      format: date-time
+                    renewedAt:
+                      type: string
+                      format: date-time
+                    leaseDurationSeconds:
+                      type: integer
+                      format: int32
+                observed:
+                  type: object
+                  properties:
+                    bodyHash:
+                      type: string
+      additionalPrinterColumns:
+        - name: Group
+          type: string
+          jsonPath: .spec.resourceRef.group
+        - name: Resource
+          type: string
+          jsonPath: .spec.resourceRef.resource
+        - name: Name
+          type: string
+          jsonPath: .spec.resourceRef.name
+        - name: Holder
+          type: string
+          jsonPath: .spec.lock.holderIdentity
+        - name: UID
+          type: string
+          jsonPath: .spec.metadata.uid
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp

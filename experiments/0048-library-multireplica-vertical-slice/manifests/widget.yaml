@@ -1,0 +1,19 @@
+# Sample Widget for experiment 0048 (capstone). The served type is the
+# 0046-GENERATED widgets.aggexp.io/v1.Widget — note the richer spec
+# (color enum, size, optional coordinates/tags/attributes) all come
+# from the generated OpenAPI, not hand-written types.
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: sample
+  namespace: aggexp-widgets
+spec:
+  color: blue
+  size: 7
+  enabled: true
+  tags: ["capstone", "multireplica"]
+  attributes:
+    team: platform
+  coordinates:
+    x: 3
+    y: 4

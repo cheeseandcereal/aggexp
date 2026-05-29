@@ -1,0 +1,53 @@
+# Permissive RBAC for experiment 0048 (capstone).
+#
+# 1. system:authenticated can CRUD widgets.widgets.aggexp.io through
+#    kubectl (the served group is the 0046-generated widgets.aggexp.io).
+# 2. The AA's ServiceAccount (aggexp) gets full CRUD on the
+#    cluster-scoped metadata + body CRDs so its dynamic client +
+#    informers can read/write them on the host cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-widgets-permissive
+rules:
+  - apiGroups: ["widgets.aggexp.io"]
+    resources: ["widgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-widgets-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-widgets-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-resourcemetadata-backend
+rules:
+  - apiGroups: ["widgetmeta.aggexp.io"]
+    resources: ["resourcemetadatas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["widgetbody.aggexp.io"]
+    resources: ["widgetbodies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-resourcemetadata-backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-resourcemetadata-backend
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
