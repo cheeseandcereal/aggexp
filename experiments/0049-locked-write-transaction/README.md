@@ -14,13 +14,13 @@ embedded lock).
 
 ## Status
 
-in-progress
+complete
 
 <!-- valid values: in-progress, complete, abandoned -->
 
 ## Prior findings this builds on
 
-- `FINDINGS/0048-library-multireplica-vertical-slice.md` — surfaced the
+- `FINDINGS/0049-locked-write-transaction.md` — surfaced the
   gap: the lock serializes acquisition but not commit, so cross-replica
   losers can get 500s instead of 409s; only the acquire path retries.
 - `FINDINGS/0043-embedded-lock-emission-filtering.md` — the embedded
@@ -83,33 +83,65 @@ successful retry), and the body and metadata must never diverge.
 kind create cluster --name aggexp-0049
 kubectl --context kind-aggexp-0049 create namespace aggexp-system
 kubectl config use-context kind-aggexp-0049
-./experiments/0049-locked-write-transaction/hack/deploy.sh
+# Deploy with the fix DISABLED for the regression baseline:
+LOCK_TXN=false ./experiments/0049-locked-write-transaction/hack/deploy.sh
+# Deploy with the fix ENABLED (default):
+LOCK_TXN=true  ./experiments/0049-locked-write-transaction/hack/deploy.sh
 ```
+
+`deploy.sh` does a `rollout restart` so flipping `LOCK_TXN` between
+scenarios takes effect even when the image tag is unchanged. Every
+kubectl call pins `--context kind-aggexp-0049`.
+
+### The contention harness (`cmd/contend`)
+
+`cmd/contend` drives genuinely concurrent writes to ONE object and
+tallies 200/409/500. Build it on the host: `go build -o /tmp/contend
+./cmd/contend` (use `GOTOOLCHAIN=local`).
+
+Two contention modes:
+
+- **Default (through the aggregation layer).** N independent clients,
+  each its own connection pool, write through the host kube-apiserver.
+  The aggregator's backend connection reuse tends to pin all writes to
+  ONE replica — which still reproduces the bug, because the embedded
+  lock's holder identity is the *replica*, so two concurrent writes on
+  the same replica both take the re-entrant-acquire path and race the
+  post-acquire body+commit writes.
+- **Genuine cross-replica (`-endpoints`).** Pass
+  `-endpoints https://localhost:18443,https://localhost:18453,https://localhost:18463`
+  after `kubectl -n aggexp-system port-forward pod/aggexp-{0,1,2}
+  18443:8443 / 18453:8443 / 18463:8443`. Each writer dials a per-pod
+  serving endpoint DIRECTLY (the pod's DelegatingAuthentication accepts
+  the kubeconfig's cluster-CA client cert; serving-cert SANs don't cover
+  `localhost`, so the harness sets `Insecure`). Writer `i` targets
+  endpoint `i % len`, so a round spreads across all three replicas —
+  defeating the connection-reuse collapse 0048 documented.
 
 ### Scenario 1 — reproduce the 500 (regression baseline)
 
-With the fix disabled (a flag), drive concurrent same-object writes from
-two replicas and confirm the 0048 behavior reproduces: some losers get
-500s. This pins the bug before fixing it.
+`LOCK_TXN=false`, then `/tmp/contend -writers 12 -rounds 20` (and the
+`-endpoints` cross-replica variant). Confirm losers get 500s.
 
 ### Scenario 2 — fix yields clean 409s
 
-Enable the fix. Repeat the contended burst. Confirm every non-winner
-gets a **409 Conflict** (or succeeds on retry), **zero 500s**, across
-many rounds and increasing writer counts.
+`LOCK_TXN=true`, repeat. Confirm zero 500s across rounds and increasing
+writer counts (`-ramp -writers 24`).
 
 ### Scenario 3 — no divergence / no lost writes
 
-After a heavy contended burst, confirm the served object's body and its
-metadata record agree (no half-applied write), the final value is one of
-the submitted writes (no corruption), and the object's RV advanced
-monotonically.
+`/tmp/contend -cleanup=false -name divergence ...`, then compare the
+served Widget, the body CR (`widgetbodies body.<ns>.<name>`), and the
+metadata CR (`resourcemetadatas widgets-aggexp-io.widgets.<ns>.<name>`):
+color/size/uid/RV agree; `spec.observed.bodyHash` matches a sha256 of
+the body; `spec.lock` is empty; RV monotonic.
 
 ### Scenario 4 — fast path unaffected
 
-Confirm uncontended writes still take the same number of CR writes as
-0043/0047 measured (no extra writes added on the happy path by the
-transaction discipline).
+Pin to one replica (`hack/pin-replica.sh aggexp-0`), do an uncontended
+create + a couple of patches, and confirm `writeRetry=0`,
+`maxWriteDepth=0` on `:8444/metrics` — the transaction loop runs exactly
+once, adding no CR writes on the happy path.
 
 ### Cleanup
 
@@ -119,9 +151,32 @@ kind delete cluster --name aggexp-0049
 
 ## Decisions made
 
-<!-- filled in at implementation -->
-- Retry budget reused from 0043 (3 attempts, 25ms exponential backoff)
-  unless measurement says otherwise.
+- **Chose fix (a): commit-path retry under the held lock.** It closes
+  BOTH 500 sources (body-CR `Put` CAS conflict AND metadata
+  commit-release CAS conflict) with one outer retry loop, and degrades
+  cleanly to the 0048 single-shot behavior when disabled (the regression
+  baseline). Fix (b) (fold commit into the acquire-release CAS) would
+  collapse the metadata commit to a single CAS point but does NOT cover
+  the body-CR `Put` race — the body lives on a *separate* RV-blind CRD
+  (0042), so its CAS conflict is independent of the metadata CR's RV.
+  The body race is the dominant 500 source observed (see FINDINGS), so
+  (a) is both simpler in this split-store design and strictly more
+  complete.
+- **Transaction-retry budget = 5 attempts** (distinct from the 0043
+  acquire budget of 3). A contended commit re-reads the served object
+  after a peer commits, which is a heavier round-trip than a bare
+  acquire CAS, so the outer loop gets a touch more headroom. Chosen
+  arbitrarily; under 16–24-way contention the observed max retry depth
+  was 4 (i.e. the budget was occasionally fully used), so 5 is the
+  right order of magnitude. Backoff reuses 0043's 25ms exponential
+  (capped at 2^4).
+- **The fix is a flag (`--lock-txn`, default true);** `--lock-txn=false`
+  reproduces the original 500 for the regression baseline.
+- **Direct per-pod dialing for genuine cross-replica contention.** The
+  aggregation layer's backend connection reuse collapses cross-replica
+  spread (the 0048 hazard); the harness's `-endpoints` mode dials each
+  pod's serving port directly to defeat it. Lab convenience: SANs don't
+  cover `localhost`, so TLS verify is skipped on those direct dials.
 
 ## Prerequisites
 

@@ -1,0 +1,23 @@
+# Sample Widget for experiment 0048 (capstone). The served type is the
+# 0046-GENERATED widgets.aggexp.io/v1.Widget — the color enum, size,
+# enabled flag, tags array, and attributes map all come from the
+# generated OpenAPI, not hand-written types.
+#
+# NOTE: the generated `spec.coordinates` ($ref nested object) is
+# deliberately omitted here. The capstone surfaced that the generated
+# bare-$ref schema breaks the create strict decoder and the SSA
+# typed-converter (".spec.coordinates.true: field not declared in
+# schema") — interference the isolated 0046 experiment missed because
+# its SSA scenario only exercised scalar fields. See FINDINGS/0048.
+apiVersion: widgets.aggexp.io/v1
+kind: Widget
+metadata:
+  name: sample
+  namespace: aggexp-widgets
+spec:
+  color: blue
+  size: 7
+  enabled: true
+  tags: ["capstone", "multireplica"]
+  attributes:
+    team: platform
