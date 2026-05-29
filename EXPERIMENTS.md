@@ -361,6 +361,16 @@ do not collide.
   ahead of the metadata informer, so a fresh object's first ADDED can
   carry an empty UID. See
   `FINDINGS/0048-library-multireplica-vertical-slice.md`.
+- **`0049-locked-write-transaction`** — close the design gap 0048
+  surfaced: the embedded lock (0043) serializes lock *acquisition* but
+  not the post-acquire body + commit writes, so cross-replica losers can
+  get 500s rather than clean 409s (the lock is an admission gate, not a
+  transaction). Makes the locked write a transaction (commit-path retry
+  under the held lock, or acquire+commit as one CAS sequence) and
+  validates it under real cross-replica contention, so the fix is
+  experiment-validated before the multi-replica substrate promotion.
+  Primary fundamental: watch and consistency semantics. Builds on 0048
+  and 0043. Status: in-progress.
 
 ---
 
