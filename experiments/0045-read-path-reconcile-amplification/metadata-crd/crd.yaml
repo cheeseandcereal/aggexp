@@ -1,0 +1,107 @@
+# Metadata CRD for experiment 0042 — cluster-scoped, in a DEDICATED
+# group (widgetmeta.aggexp.io) distinct from the served group
+# (aggexp.io). An APIService claims an entire group/version, so the
+# metadata CRD cannot live in the served group. One instance per
+# served Widget; carries ONLY the KRM metadata overlay. The business
+# body (spec+status) lives in the AA's in-memory backend, never here.
+#
+# The metadata CR's own metadata.resourceVersion (host etcd RV) is
+# the single RV authority for the stitched Widget across Get, List,
+# and Watch in every replica.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: resourcemetadatas.widgetmeta.aggexp.io
+spec:
+  group: widgetmeta.aggexp.io
+  scope: Cluster
+  names:
+    kind: ResourceMetadata
+    listKind: ResourceMetadataList
+    singular: resourcemetadata
+    plural: resourcemetadatas
+    shortNames: ["rmeta"]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            ResourceMetadata holds KRM metadata (uid, creationTimestamp,
+            deletionTimestamp, labels, annotations, finalizers,
+            managedFields, ownerReferences) that experiment 0042's
+            aggregated apiserver stitches onto backend-provided
+            business data on every response. The metadata CR's own
+            resourceVersion is the authoritative RV of the stitched
+            object.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required: ["resourceRef", "metadata"]
+              properties:
+                resourceRef:
+                  type: object
+                  required: ["group", "resource", "name"]
+                  properties:
+                    group:
+                      type: string
+                    resource:
+                      type: string
+                    namespace:
+                      type: string
+                    name:
+                      type: string
+                metadata:
+                  type: object
+                  properties:
+                    uid:
+                      type: string
+                    creationTimestamp:
+                      type: string
+                      format: date-time
+                    deletionTimestamp:
+                      type: string
+                      format: date-time
+                    labels:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    annotations:
+                      type: object
+                      additionalProperties:
+                        type: string
+                    finalizers:
+                      type: array
+                      items:
+                        type: string
+                    managedFields:
+                      type: string
+                    ownerReferences:
+                      type: string
+      additionalPrinterColumns:
+        - name: Group
+          type: string
+          jsonPath: .spec.resourceRef.group
+        - name: Resource
+          type: string
+          jsonPath: .spec.resourceRef.resource
+        - name: Namespace
+          type: string
+          jsonPath: .spec.resourceRef.namespace
+        - name: Name
+          type: string
+          jsonPath: .spec.resourceRef.name
+        - name: UID
+          type: string
+          jsonPath: .spec.metadata.uid
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
