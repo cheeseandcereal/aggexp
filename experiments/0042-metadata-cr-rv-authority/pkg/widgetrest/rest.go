@@ -61,7 +61,7 @@ var groupResource = schema.GroupResource{Group: servedGroup, Resource: servedRes
 // REST is the stitched host-RV adapter.
 type REST struct {
 	store     *metastore.Store
-	bodies    *backend.InMem
+	bodies    *backend.Store
 	replicaID string
 
 	bcaster *watch.Broadcaster
@@ -71,7 +71,7 @@ type REST struct {
 }
 
 // New constructs a REST. broadcasterSize defaults to 100.
-func New(store *metastore.Store, bodies *backend.InMem, replicaID string, broadcasterSize int) *REST {
+func New(store *metastore.Store, bodies *backend.Store, replicaID string, broadcasterSize int) *REST {
 	if broadcasterSize <= 0 {
 		broadcasterSize = 100
 	}
@@ -116,7 +116,12 @@ func (r *REST) SetCurrentResourceVersion(rv string) {
 func (r *REST) StitchForRef(ref metastore.ResourceRef, rec *metastore.Record) (runtime.Object, bool) {
 	body, ok := r.bodies.Get(ref.Namespace, ref.Name)
 	if !ok {
-		return nil, false
+		// The metadata-CR event may have raced ahead of the body
+		// informer cache; read the body direct.
+		body, ok = r.bodies.GetDirect(context.Background(), ref.Namespace, ref.Name)
+		if !ok {
+			return nil, false
+		}
 	}
 	return r.stitch(ref.Namespace, ref.Name, body, rec), true
 }
@@ -136,12 +141,22 @@ func (r *REST) Get(ctx context.Context, name string, _ *metav1.GetOptions) (runt
 	ns, _ := genericapirequest.NamespaceFrom(ctx)
 	body, ok := r.bodies.Get(ns, name)
 	if !ok {
-		return nil, apierrors.NewNotFound(groupResource, name)
+		// Cache may lag a very recent write; fall back to a direct
+		// read against the host cluster.
+		body, ok = r.bodies.GetDirect(ctx, ns, name)
+		if !ok {
+			return nil, apierrors.NewNotFound(groupResource, name)
+		}
 	}
 	ref := r.refFor(ns, name)
 	rec, err := r.store.GetFromCache(ref)
 	if err != nil {
 		klog.Warningf("metastore cache get failed ref=%s: %v", refLog(ref), err)
+	}
+	if rec == nil {
+		// Cache lag on the metadata CR; read direct so the writer
+		// sees its own RV immediately.
+		rec, _ = r.store.GetDirect(ctx, ref)
 	}
 	return r.stitch(ns, name, body, rec), nil
 }
@@ -291,13 +306,23 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 	if w.Name == "" {
 		return nil, apierrors.NewBadRequest("metadata.name is required")
 	}
-	if _, exists := r.bodies.Get(w.Namespace, w.Name); exists {
+	if _, exists := r.bodies.GetDirect(ctx, w.Namespace, w.Name); exists {
 		return nil, apierrors.NewAlreadyExists(groupResource, w.Name)
 	}
 
 	ref := r.refFor(w.Namespace, w.Name)
 
-	// Step 1: persist the metadata CR first so we obtain its host RV.
+	// Step 1: store the body on the shared body CRD FIRST, so that
+	// when the metadata-CR informer event fires (step 2) every
+	// replica's StitchForRef can find the body. The body CR's RV is
+	// discarded — never surfaced.
+	if berr := r.bodies.Put(ctx, w.Namespace, w.Name, backend.BodyFromWidget(w)); berr != nil {
+		return nil, apierrors.NewInternalError(fmt.Errorf("backend.Put: %w", berr))
+	}
+
+	// Step 2: persist the metadata CR. Its host etcd RV becomes the
+	// authoritative RV of the stitched object, and its informer event
+	// drives the watch fan-out on every replica.
 	rec := recordFromObject(w, ref)
 	if rec.UID == "" {
 		rec.UID = uuid.NewString()
@@ -307,11 +332,10 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 	}
 	storedRec, err := r.store.Put(ctx, rec)
 	if err != nil {
+		// Roll back the body so a retry is clean.
+		_ = r.bodies.Delete(ctx, w.Namespace, w.Name)
 		return nil, apierrors.NewInternalError(fmt.Errorf("metastore.Put: %w", err))
 	}
-
-	// Step 2: store the body in the RV-blind backend.
-	r.bodies.Put(w.Namespace, w.Name, backend.BodyFromWidget(w))
 
 	stitched := r.stitch(w.Namespace, w.Name, backend.BodyFromWidget(w), storedRec)
 	// Do NOT publish here: the metadata-CRD informer will fire the
@@ -399,11 +423,15 @@ func (r *REST) Update(
 		rec.CreationTimestamp = metav1.NewTime(time.Now().UTC())
 	}
 
+	// Write the body first so the metadata-CR MODIFIED event finds
+	// the updated body on every replica.
+	if berr := r.bodies.Put(ctx, w.Namespace, name, backend.BodyFromWidget(w)); berr != nil {
+		return nil, false, apierrors.NewInternalError(fmt.Errorf("backend.Put: %w", berr))
+	}
 	storedRec, perr := r.store.Put(ctx, rec)
 	if perr != nil {
 		return nil, false, apierrors.NewInternalError(fmt.Errorf("metastore.Put: %w", perr))
 	}
-	r.bodies.Put(w.Namespace, name, backend.BodyFromWidget(w))
 
 	stitched := r.stitch(w.Namespace, name, backend.BodyFromWidget(w), storedRec)
 	// Informer publishes the MODIFIED event with host RV.
@@ -424,14 +452,17 @@ func (r *REST) Delete(ctx context.Context, name string, deleteValidation rest.Va
 		}
 	}
 	ref := r.refFor(ns, name)
-	// Delete the body first (so a racing StitchForRef sees it gone),
-	// then the metadata CR (whose informer DELETE drives the watch
-	// event). We publish a DELETED here as well as a safety net since
-	// once the body is gone the informer's StitchForRef would return
-	// not-present.
-	r.bodies.Delete(ns, name)
+	// Delete the metadata CR first: its informer DELETE event fires
+	// while the body still exists, so StitchForRef can build the
+	// final (deleted) object carrying the metadata CR's last RV.
+	// Then delete the body. We also publish a DELETED here directly
+	// (with the prior stitched object) as a safety net for the
+	// writer replica's own watchers.
 	if derr := r.store.Delete(ctx, ref); derr != nil {
 		return nil, false, apierrors.NewInternalError(derr)
+	}
+	if berr := r.bodies.Delete(ctx, ns, name); berr != nil {
+		klog.Warningf("backend.Delete failed ns=%s name=%s: %v", ns, name, berr)
 	}
 	r.Action(watch.Deleted, prior)
 	return prior, true, nil

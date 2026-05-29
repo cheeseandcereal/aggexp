@@ -93,7 +93,12 @@ func (o *Options) Run(ctx context.Context) error {
 		replicaID = "<unknown>"
 	}
 
-	bodies := backend.New()
+	bodies := backend.New(backend.Options{
+		Dynamic:      dyn,
+		FieldManager: "aggexp-widgets",
+		ReplicaID:    replicaID,
+		ResyncPeriod: o.ResyncPeriod,
+	})
 	store := metastore.New(metastore.Options{
 		Dynamic:      dyn,
 		FieldManager: "aggexp-widgets",
@@ -120,6 +125,12 @@ func (o *Options) Run(ctx context.Context) error {
 		return fmt.Errorf("creating apiserver: %w", err)
 	}
 	if err := srv.AddPostStartHook("metastore-informer-start", func(hookCtx genericapiserver.PostStartHookContext) error {
+		// Start the body informer first so the metastore's informer
+		// events (which drive watch fan-out and call StitchForRef →
+		// body lookup) find a synced body cache.
+		if berr := bodies.Start(hookCtx.Context); berr != nil {
+			return berr
+		}
 		if serr := store.Start(hookCtx.Context); serr != nil {
 			return serr
 		}

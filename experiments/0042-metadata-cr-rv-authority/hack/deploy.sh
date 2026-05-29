@@ -45,8 +45,9 @@ kubectl create secret tls aggexp-serving-cert \
 docker build -t "${IMAGE}" -f "${EXP}/Dockerfile" .
 kind load docker-image "${IMAGE}" --name "${CLUSTER}"
 
-# --- 3. metadata CRD + experiment manifests ---
+# --- 3. metadata + body CRDs + experiment manifests ---
 kubectl apply -f "${EXP}/metadata-crd/crd.yaml"
+kubectl apply -f "${EXP}/metadata-crd/body-crd.yaml"
 
 for f in \
   "${EXP}/manifests/02-namespace.yaml" \

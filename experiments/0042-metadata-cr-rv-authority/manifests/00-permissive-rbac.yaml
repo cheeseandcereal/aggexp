@@ -34,6 +34,9 @@ rules:
   - apiGroups: ["widgetmeta.aggexp.io"]
     resources: ["resourcemetadatas"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["widgetbody.aggexp.io"]
+    resources: ["widgetbodies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
