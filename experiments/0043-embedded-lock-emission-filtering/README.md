@@ -11,11 +11,11 @@ Builds on the metadata-CR core from 0042.
 
 ## Status
 
-in-progress
+complete
 
 <!-- valid values: in-progress, complete, abandoned -->
-<!-- Scaffolded brief: hypothesis + run plan written; implementation
-     pending. Copy the 0042 metastore core into this experiment first. -->
+<!-- All five scenarios pass on a 3-replica StatefulSet in kind
+     (aggexp-0043). See FINDINGS/0043-embedded-lock-emission-filtering.md. -->
 
 ## Prior findings this builds on
 
@@ -149,10 +149,42 @@ kind delete cluster --name aggexp-0043
 - `leaseDurationSeconds` default 15s; renewal interval `Lease/3` = 5s;
   retry 3 attempts at 25ms exponential backoff (0032/0033 defaults).
 - Fail-fast 409 on fresh-held lock (0033), not acquirer-side retry.
-- Renewal **on by default**; expose a flag to disable for backends with
-  sub-lease write latencies.
+  The 3-attempt retry budget applies only to CAS-level conflicts (two
+  replicas racing the same CR write), never to a fresh held lock.
+- Renewal **on by default**; `--disable-lock-renewal` turns it off and
+  `--lock-lease-duration` tunes the lease (and thus the `Lease/3`
+  renewal interval) for backends with sub-lease write latencies.
 - Emission filter keys on `spec.observed.bodyHash` + the served KRM
-  metadata fields; `spec.lock` deltas are never watcher-visible.
+  metadata fields (uid, deletionTimestamp, labels, annotations,
+  finalizers, ownerReferences). It deliberately EXCLUDES the
+  resourceVersion and `spec.lock`; `spec.lock` deltas are never
+  watcher-visible.
+- The single served-object metadata CR is the lock's CAS surface. A
+  served write performs exactly **two** host CR writes — acquire
+  (sets `spec.lock`) and commit-release (writes body hash + KRM
+  metadata AND clears `spec.lock` in one Update) — plus one renewal
+  write per `Lease/3` interval while a backend op is in flight.
+- Relaxed the metadata CRD's `spec.required` from
+  `["resourceRef","metadata"]` to `["resourceRef"]`: on the Create
+  path the lock is CAS-created onto a CR that does not yet carry
+  metadata (metadata + body hash land at commit). Required by the
+  embedded design; arbitrary in that the prior 0042 requirement was
+  never load-bearing.
+- A `WIDGET_BACKEND_DELAY_SECONDS` env var (read at startup) injects a
+  backend write delay so scenario 3 can force a Put to outlast the
+  lease and exercise the renewal heartbeat. Debug knob, not a
+  production feature.
+- Delete removes the whole metadata CR (and with it the embedded lock)
+  rather than acquiring the lock first. Deleting the host object
+  inherently releases its embedded lock — a lifecycle simplification
+  the separate-lock designs (0032/0033) did not get for free.
+- `insecureSkipTLSVerify: true` on the APIService (inherited from
+  0042) — a lab convenience for replica pinning, not a security
+  posture.
+- All `hack/` scripts pin every kubectl call to `--context
+  kind-aggexp-0043`. Multiple aggexp-00NN clusters can exist
+  concurrently on one machine; relying on the ambient current-context
+  is unsafe.
 
 ## Prerequisites
 
