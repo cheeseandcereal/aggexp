@@ -294,7 +294,9 @@ do not collide.
   `kubectl apply --server-side` parity on the generated types, and
   records the OpenAPI-parsing tooling-of-record decision. Primary
   fundamental: wire protocol fidelity; secondary: resource modeling
-  freedom. Independent of the rest of the arc. Status: in-progress.
+  freedom. Independent of the rest of the arc. Status: complete
+  (kin-openapi chosen; all four scenarios passed; see
+  `FINDINGS/0046-openapi-first-codegen.md`).
 - **`0047-host-etcd-write-ceiling`** — measure the host
   kube-apiserver / etcd write rate produced by composing 0042's
   observed-body-hash RV pump, 0043's embedded-lock

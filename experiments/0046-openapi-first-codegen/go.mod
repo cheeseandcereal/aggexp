@@ -1,6 +1,6 @@
 module github.com/cheeseandcereal/aggexp/experiments/0046-openapi-first-codegen
 
-go 1.26.0
+go 1.24.0
 
 // This experiment opts into its own go.mod (per AGENTS.md "Go module
 // layout") so the OpenAPI-parsing dependency the generator pulls in

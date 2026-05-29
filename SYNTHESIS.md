@@ -301,6 +301,32 @@ the backend author writes zero K8s-specific code to describe
 their type. The arc standardizes on (B) as the default with (C)
 retained as an escape hatch for dynamic multi-AA deployment.
 
+**Track B generalizes to the typed-library path: an OpenAPI-first
+generator can emit the entire Kubernetes type layer** [`0046`]. 0023
+realized Track B for the *middleware* path (synthesize a schema at
+request time). 0046 realizes the same idea for the *typed* path: a
+generator consumes one hand-authored OpenAPI v3 document and emits all
+the Go an aggregated API needs — typed structs, deepcopy, dual-version
+scheme registration with conversions, openapi-gen-shaped GVK-stamped
+definitions, and field-label conversions — with zero hand-written
+scheme/types/openapi-gen boilerplate. A library-mode AA built purely on
+the generated package passed explain, server-side apply (with
+managedFields + conflict detection), and field/label selectors. Output
+is reproducible (byte-identical; input SHA-256 recorded in `doc.go`).
+The supported v1 subset is scalars-with-formats, named enums,
+date-time, nested objects (inline and `$ref`), arrays of scalars and of
+objects, string-keyed maps, free-form objects, and optional-vs-required
+(driving Go pointers); the boundary is the composition keywords
+(`oneOf`/`anyOf`/arbitrary `allOf`/`not`), each rejected because none
+has a single obvious Go mapping. A reusable simplification fell out:
+for a *generator*, registering the same Go type under both the external
+and internal GVs with an identity (deep-copy) conversion satisfies the
+SSA/PATCH internal-hub requirement without the fragile cross-package
+struct conversions a separate internal package would force. Consequent:
+the OpenAPI parser (`getkin/kin-openapi`) is heavy and must live in an
+isolated `go.mod` with its k8s deps pinned to the substrate's versions,
+or the build breaks on a yaml-v3 type split.
+
 **The stateless-AA + CRD-facade pattern supports real gitops
 controllers writing to our resources** [`0015`]. ArgoCD
 Application can target a `Widget` (0010's CRD-facade AA), do SSA
