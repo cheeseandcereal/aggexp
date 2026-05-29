@@ -45,7 +45,7 @@ spec:
               type: object
             spec:
               type: object
-              required: ["resourceRef", "metadata"]
+              required: ["resourceRef"]
               properties:
                 resourceRef:
                   type: object
@@ -86,6 +86,33 @@ spec:
                       type: string
                     ownerReferences:
                       type: string
+                # observed (0043, composed into 0047): the AA's last
+                # committed body hash — the watcher-visible change signal
+                # the emission filter keys on.
+                observed:
+                  type: object
+                  properties:
+                    bodyHash:
+                      type: string
+                # lock (0043, composed into 0047): the embedded per-object
+                # write lock, CAS'd on this CR's own resourceVersion.
+                # When holderIdentity is empty the lock is free. Lock
+                # acquire/release/renewal each WRITE this CR — the
+                # write-amplification 0047 measures.
+                lock:
+                  type: object
+                  properties:
+                    holderIdentity:
+                      type: string
+                    acquiredAt:
+                      type: string
+                      format: date-time
+                    renewedAt:
+                      type: string
+                      format: date-time
+                    leaseDurationSeconds:
+                      type: integer
+                      format: int32
       additionalPrinterColumns:
         - name: Group
           type: string

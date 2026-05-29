@@ -65,6 +65,12 @@ type Options struct {
 	// BackendWriteDelay forces renewal heartbeats by making each
 	// backend body Put take this long (0047 scenario 2 slow-backend).
 	BackendWriteDelay time.Duration
+
+	// ClientQPS / ClientBurst raise the dynamic client's rate limit so
+	// the host kube-apiserver / etcd (not client-go's default QPS=5)
+	// is the throughput gate when measuring the write ceiling.
+	ClientQPS   int
+	ClientBurst int
 }
 
 // NewOptions returns Options with defaults.
@@ -79,6 +85,8 @@ func NewOptions() *Options {
 		BufferSize:      100,
 		MetricsInterval: 10 * time.Second,
 		LeaseDuration:   locking.DefaultLeaseDuration,
+		ClientQPS:       500,
+		ClientBurst:     1000,
 	}
 }
 
@@ -105,6 +113,10 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 		"embedded-lock lease duration (renewal fires every lease/3 during a slow op)")
 	fs.DurationVar(&o.BackendWriteDelay, "backend-write-delay", o.BackendWriteDelay,
 		"artificial backend body-write delay; forces lock-renewal heartbeats (0047 scenario 2)")
+	fs.IntVar(&o.ClientQPS, "client-qps", o.ClientQPS,
+		"dynamic-client QPS to the host kube-apiserver (raised so host etcd, not client-go throttling, gates throughput)")
+	fs.IntVar(&o.ClientBurst, "client-burst", o.ClientBurst,
+		"dynamic-client burst to the host kube-apiserver")
 }
 
 // Validate composes the substrate validator.
@@ -141,6 +153,14 @@ func (o *Options) Run(ctx context.Context) error {
 	default:
 		return fmt.Errorf("no client config available (CoreAPI / loopback); cannot talk to host cluster")
 	}
+	// 0047: the dynamic client to the host kube-apiserver is in the hot
+	// path of EVERY served write (acquire CAS + body Put + commit CAS).
+	// client-go's default QPS=5/burst=10 would make THAT the throughput
+	// gate, not host etcd — defeating the ceiling measurement. Raise it
+	// so the bottleneck is the host kube-apiserver / etcd, which is the
+	// thing under test. (Arbitrary headroom; recorded in the README.)
+	restCfg.QPS = float32(o.ClientQPS)
+	restCfg.Burst = o.ClientBurst
 	dyn, err := dynamic.NewForConfig(restCfg)
 	if err != nil {
 		return fmt.Errorf("building dynamic client: %w", err)

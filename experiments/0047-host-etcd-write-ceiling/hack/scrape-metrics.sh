@@ -35,12 +35,19 @@ echo "==== scrape ${LABEL} @ ${ts} ===="
 
 raw="$(${K} get --raw /metrics)"
 
-echo "--- apiserver_request_total (metadata + body CRDs) ---"
+echo "--- apiserver_request_total (metadata + body CRDs, by resource/verb) ---"
 echo "${raw}" \
   | grep '^apiserver_request_total{' \
   | grep -E 'resource="(resourcemetadatas|widgetbodies)"' \
-  | sed -E 's/.*group="([^"]*)".*resource="([^"]*)".*verb="([^"]*)".*} ([0-9.e+]+)$/\2 \3 = \4/' \
-  | sort | awk '{a[$1" "$2]+=$4} END{for(k in a) printf "  %-40s %s\n", k, a[k]}' \
+  | awk '
+      {
+        match($0, /resource="[^"]*"/); res=substr($0,RSTART+10,RLENGTH-11);
+        match($0, /verb="[^"]*"/);     verb=substr($0,RSTART+6,RLENGTH-7);
+        val=$NF;
+        a[res" "verb]+=val;
+      }
+      END { for (k in a) printf "  %-32s %d\n", k, a[k] }
+    ' | sort \
   || echo "  (no matching series yet)"
 
 echo "--- etcd_request_duration_seconds (count + sum, all ops) ---"
