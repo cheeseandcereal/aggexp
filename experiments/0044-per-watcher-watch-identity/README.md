@@ -12,11 +12,15 @@ access. Builds on the metadata-CR core from 0042.
 
 ## Status
 
-in-progress
+complete
 
 <!-- valid values: in-progress, complete, abandoned -->
-<!-- Scaffolded brief: hypothesis + run plan written; implementation
-     pending. Copy the 0042 metastore core into this experiment first. -->
+<!-- Per-watcher watch with per-user authz works in push and poll; the
+     cost is linear in N (one backend Watch or one List/interval per
+     watcher), the (identity,ns,name) Get dedup cache recovers the
+     per-event fan-out cost, and SharedPoll recovers the
+     single-global-watch profile at the price of per-user authz. See
+     FINDINGS/0044. -->
 
 ## Prior findings this builds on
 
@@ -113,6 +117,16 @@ kubectl config use-context kind-aggexp-0044
 ./experiments/0044-per-watcher-watch-identity/hack/deploy.sh
 ```
 
+`deploy.sh` honors these env knobs (passed to the StatefulSet args):
+`WATCH_MODE` (`push`|`poll`, default `push`), `SHARED_POLL`
+(`true`|`false`, default `false`), `POLL_INTERVAL` (default `5s`),
+`UPSTREAM_BUDGET` (int, default `0` = unlimited). To re-run a scenario
+under a different config without re-applying CRDs/RBAC, use
+`hack/redeploy.sh` with the same env vars (`SKIP_BUILD=1` to reuse the
+loaded image), and `hack/pin-replica.sh aggexp-0` to route all kubectl
+traffic to one replica. `cmd/watchload` is the N-watcher load
+generator used for scenarios 2–4.
+
 ### Scenario 1 — per-user authz on watch (push and poll)
 
 Seed objects owned by `alice` and by `bob`. Watch as `alice`
@@ -157,6 +171,32 @@ kind delete cluster --name aggexp-0044
   measurement shows churn.
 - Backend models ownership via an `owner` field set from `user.Info` so
   per-user watch authz is observable in a self-contained way.
+- **Body-storage / identity-filtering choice (option a):** kept the
+  0042 shared body CRD (cross-replica readable) and added an `owner`
+  field per body, server-stamped from the caller's `user.Info` on
+  Create and overwriting any client-supplied value. The backend's
+  identity-aware reads (`GetFor`/`ListFor`/`WatchFor`) filter on owner.
+  This keeps cross-replica Get/List/Watch working (the 0042 finding)
+  AND makes per-user authz observable. A per-replica in-memory backend
+  would have re-broken cross-replica reads.
+- **Single emission path with RV dedup:** both live sources (the
+  per-watcher backend channel/loop AND the shared metadata informer
+  cross-replica path) can fire for a change committed on this replica.
+  Per-watcher `(ns/name)→lastRV` dedup collapses the duplicate; the
+  metadata informer remains the sole RV authority.
+- **System identities see everything:** `system:masters` group, the
+  AA's own ServiceAccount, `system:kube-aggregator`, and node identities
+  bypass the owner filter (so controllers/GC still work). Ordinary
+  impersonated users (`kubectl --as alice`) are scoped to objects they
+  own.
+- **BOOKMARK carrier is a `*Widget`,** not `PartialObjectMetadata`:
+  the latter is not in the served scheme and the aggexp.io watch
+  encoder closes the stream on it (a ~30-minute trap; see FINDINGS).
+- **Budget-exhausted push falls back to per-watcher poll** rather than
+  erroring — the internal-multiplex backpressure path.
+- Metrics logged every 5s (`--metrics-interval`) as a structured
+  klog line (`aggexp-0044-metrics`) rather than a `/metrics` endpoint;
+  the scenarios read counter deltas from `kubectl logs`.
 
 ## Prerequisites
 
