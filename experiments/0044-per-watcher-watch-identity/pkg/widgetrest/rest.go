@@ -136,6 +136,16 @@ func (r *REST) StitchFor(u user.Info, ns, name string) (runtime.Object, bool) {
 	return r.stitch(ns, name, body, rec), true
 }
 
+// NewBookmark returns an empty served Widget for use as a BOOKMARK
+// carrier (must be a scheme-registered served type, not
+// PartialObjectMetadata).
+func (r *REST) NewBookmark() runtime.Object {
+	w := &aggexp.Widget{}
+	w.TypeMeta.Kind = "Widget"
+	w.TypeMeta.APIVersion = servedGroup + "/v1"
+	return w
+}
+
 // ---- identity / shape ----
 
 func (r *REST) New() runtime.Object     { return &aggexp.Widget{} }

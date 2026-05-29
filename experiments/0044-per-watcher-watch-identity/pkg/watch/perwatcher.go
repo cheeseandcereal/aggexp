@@ -62,9 +62,16 @@ const (
 // is absent.
 type Stitcher interface {
 	// StitchFor fetches the body via the backend using the WATCHER's
-	// identity (Backend.GetFor) and overlays the metadata CR's RV.
-	// onlyIfOwned mirrors the per-user authz gate.
+	// identity (Backend.GetFor — applies per-user authz), overlays the
+	// metadata CR's RV. Returns (nil,false) if the caller may not see
+	// the object or it is absent.
 	StitchFor(u user.Info, ns, name string) (runtime.Object, bool)
+
+	// NewBookmark returns an empty served object suitable as the
+	// carrier for an initial-events-end BOOKMARK event. It must be a
+	// type registered in the served scheme (a *Widget), NOT
+	// PartialObjectMetadata, or the aggexp.io watch encoder rejects it.
+	NewBookmark() runtime.Object
 }
 
 // HubCounters tracks the per-event Get dedup cache effectiveness and
@@ -197,7 +204,7 @@ func (h *Hub) OnMetadataEvent(et watch.EventType, ref metastore.ResourceRef, rv 
 			if !ok {
 				continue
 			}
-			w.emit(watch.Event{Type: watch.Deleted, Object: obj})
+			w.dedupEmit(watch.Deleted, obj)
 			continue
 		}
 		if !ok {
@@ -209,7 +216,7 @@ func (h *Hub) OnMetadataEvent(et watch.EventType, ref metastore.ResourceRef, rv 
 		if !w.matches(obj) {
 			continue
 		}
-		w.emit(watch.Event{Type: et, Object: obj})
+		w.dedupEmit(et, obj)
 	}
 }
 
@@ -262,6 +269,13 @@ type PerWatcher struct {
 	stop   chan struct{}
 	once   sync.Once
 
+	// emitted tracks the last RV emitted per (ns/name) so the two
+	// live sources (per-watcher backend channel/loop AND the shared
+	// metadata informer cross-replica safety net) don't double-emit
+	// the same change. Keyed ns/name -> RV.
+	emu     sync.Mutex
+	emitted map[string]string
+
 	// per-watcher backend access (push mode).
 	sub *backend.Subscription
 }
@@ -296,6 +310,37 @@ func (w *PerWatcher) emit(ev watch.Event) {
 		// relist on a gap.
 		klog.V(3).InfoS("perwatcher-drop", "id", w.id, "user", identityKey(w.identity))
 	}
+}
+
+// dedupEmit emits an object event only if its RV is newer than the
+// last RV emitted for that (ns/name) on this watcher. This collapses
+// the two live sources (per-watcher backend channel/loop and the
+// shared metadata informer cross-replica path) so a change committed
+// on this replica is not delivered twice. Deletes always emit.
+func (w *PerWatcher) dedupEmit(et watch.EventType, obj runtime.Object) {
+	acc, err := meta.Accessor(obj)
+	if err != nil {
+		w.emit(watch.Event{Type: et, Object: obj})
+		return
+	}
+	key := acc.GetNamespace() + "/" + acc.GetName()
+	rv := acc.GetResourceVersion()
+	if et == watch.Deleted {
+		w.emu.Lock()
+		delete(w.emitted, key)
+		w.emu.Unlock()
+		w.emit(watch.Event{Type: et, Object: obj})
+		return
+	}
+	w.emu.Lock()
+	prev, seen := w.emitted[key]
+	if seen && !rvLess(prev, rv) {
+		w.emu.Unlock()
+		return // already emitted this RV (or newer)
+	}
+	w.emitted[key] = rv
+	w.emu.Unlock()
+	w.emit(watch.Event{Type: et, Object: obj})
 }
 
 func (w *PerWatcher) matches(obj runtime.Object) bool {
@@ -334,6 +379,7 @@ func (h *Hub) NewWatch(ctx context.Context, u user.Info, namespace string, selec
 		selector:  selector,
 		result:    make(chan watch.Event, h.bufferSize),
 		stop:      make(chan struct{}),
+		emitted:   map[string]string{},
 	}
 	h.watchers[id] = w
 	h.mu.Unlock()
@@ -348,9 +394,16 @@ func (h *Hub) NewWatch(ctx context.Context, u user.Info, namespace string, selec
 			if !w.matches(o) {
 				continue
 			}
+			// Seed the dedup map so the live source doesn't re-emit
+			// the replayed state.
+			if acc, err := meta.Accessor(o); err == nil {
+				w.emu.Lock()
+				w.emitted[acc.GetNamespace()+"/"+acc.GetName()] = acc.GetResourceVersion()
+				w.emu.Unlock()
+			}
 			w.emit(watch.Event{Type: watch.Added, Object: o})
 		}
-		w.emit(bookmark(bookmarkRV))
+		w.emit(bookmark(h.stitcher.NewBookmark(), bookmarkRV))
 
 		// Per-watcher live backend access. In SharedPoll mode the hub's
 		// single shared loop handles liveness; here we only open
@@ -451,7 +504,7 @@ func (h *Hub) emitBackendChange(w *PerWatcher, c backend.Change) {
 			return
 		}
 		if w.matches(obj) {
-			w.emit(watch.Event{Type: watch.Deleted, Object: obj})
+			w.dedupEmit(watch.Deleted, obj)
 		}
 		return
 	}
@@ -466,7 +519,7 @@ func (h *Hub) emitBackendChange(w *PerWatcher, c backend.Change) {
 	if c.Type == backend.Modified {
 		et = watch.Modified
 	}
-	w.emit(watch.Event{Type: et, Object: obj})
+	w.dedupEmit(et, obj)
 }
 
 // RunSharedPoll runs the single system-identity poll loop that fans
@@ -546,13 +599,12 @@ func (h *Hub) sharedFanout(ct backend.ChangeType, ns, name string) {
 
 // ---- helpers ----
 
-func bookmark(rv string) watch.Event {
-	obj := &metav1.PartialObjectMetadata{}
-	obj.SetResourceVersion(rv)
-	if obj.GetAnnotations() == nil {
-		obj.SetAnnotations(map[string]string{})
+func bookmark(obj runtime.Object, rv string) watch.Event {
+	if setter, ok := obj.(metav1.ObjectMetaAccessor); ok {
+		om := setter.GetObjectMeta()
+		om.SetResourceVersion(rv)
+		om.SetAnnotations(map[string]string{"k8s.io/initial-events-end": "true"})
 	}
-	obj.Annotations["k8s.io/initial-events-end"] = "true"
 	return watch.Event{Type: watch.Bookmark, Object: obj}
 }
 
