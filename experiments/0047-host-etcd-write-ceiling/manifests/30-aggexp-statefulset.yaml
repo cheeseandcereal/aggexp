@@ -1,0 +1,152 @@
+# 3-replica StatefulSet. Stable pod names (aggexp-0/1/2) make per-pod
+# Services trivial and keep replica identity observable in logs. Each
+# replica runs its own informer on the metadata CRD; the HOSTNAME env
+# (= pod name) is the replicaID. Replaces the base 1-replica
+# Deployment from deploy/manifests (deleted first in hack/deploy.sh).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: aggexp
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  serviceName: aggexp-pod
+  replicas: 3
+  selector:
+    matchLabels:
+      app: aggexp
+  template:
+    metadata:
+      labels:
+        app: aggexp
+    spec:
+      serviceAccountName: aggexp
+      containers:
+        - name: aggexp
+          image: ${AGGEXP_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --tls-cert-file=/etc/aggexp/certs/tls.crt
+            - --tls-private-key-file=/etc/aggexp/certs/tls.key
+            - --bind-address=0.0.0.0
+            - --secure-port=8443
+            - --enable-priority-and-fairness=false
+            - --informer-resync=30s
+            - --watch-mode=${WATCH_MODE}
+            - --shared-poll=${SHARED_POLL}
+            - --poll-interval=${POLL_INTERVAL}
+            - --upstream-budget=${UPSTREAM_BUDGET}
+            - --lease-duration=${LEASE_DURATION}
+            - --backend-write-delay=${BACKEND_WRITE_DELAY}
+            - --metrics-interval=5s
+            - --v=2
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - name: https
+              containerPort: 8443
+          volumeMounts:
+            - name: serving-cert
+              mountPath: /etc/aggexp/certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8443
+              scheme: HTTPS
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+      volumes:
+        - name: serving-cert
+          secret:
+            secretName: aggexp-serving-cert
+---
+# Headless service for pod-to-pod DNS.
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp-pod
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  clusterIP: None
+  selector:
+    app: aggexp
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+---
+# Per-pod Services for replica pinning. Flip the APIService
+# spec.service.name between aggexp / aggexp-0 / aggexp-1 / aggexp-2
+# to route ALL kubectl traffic to a specific replica or the LB pool.
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp-0
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  type: ClusterIP
+  selector:
+    app: aggexp
+    statefulset.kubernetes.io/pod-name: aggexp-0
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp-1
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  type: ClusterIP
+  selector:
+    app: aggexp
+    statefulset.kubernetes.io/pod-name: aggexp-1
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: aggexp-2
+  namespace: aggexp-system
+  labels:
+    app: aggexp
+spec:
+  type: ClusterIP
+  selector:
+    app: aggexp
+    statefulset.kubernetes.io/pod-name: aggexp-2
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
+      protocol: TCP

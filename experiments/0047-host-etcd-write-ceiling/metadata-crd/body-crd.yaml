@@ -1,0 +1,81 @@
+# Body CRD for experiment 0042 — cluster-scoped, in its OWN group
+# (widgetbody.aggexp.io) distinct from both the served group
+# (aggexp.io) and the metadata group (widgetmeta.aggexp.io).
+#
+# This is the "business body lives on a separate backend" half of the
+# 0024 stitch, made cross-replica readable: rather than a per-replica
+# in-memory map (which a write on replica 0 leaves invisible to
+# replicas 1/2), the body lives on a shared host CRD that every
+# replica reads via an informer. The body store is deliberately
+# RV-BLIND: this CR's resourceVersion is NEVER surfaced on the served
+# Widget. Only the metadata CR's RV is the authority. The body CR
+# carries only spec+status.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: widgetbodies.widgetbody.aggexp.io
+spec:
+  group: widgetbody.aggexp.io
+  scope: Cluster
+  names:
+    kind: WidgetBody
+    listKind: WidgetBodyList
+    singular: widgetbody
+    plural: widgetbodies
+    shortNames: ["wbody"]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: |
+            WidgetBody holds ONLY the business body (spec + status) of a
+            served Widget, plus a resourceRef identifying which Widget
+            it belongs to. No KRM metadata, no surfaced RV.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              properties:
+                resourceRef:
+                  type: object
+                  properties:
+                    namespace:
+                      type: string
+                    name:
+                      type: string
+                body:
+                  type: object
+                  properties:
+                    color:
+                      type: string
+                    size:
+                      type: integer
+                      format: int32
+                    phase:
+                      type: string
+                    owner:
+                      type: string
+      additionalPrinterColumns:
+        - name: Namespace
+          type: string
+          jsonPath: .spec.resourceRef.namespace
+        - name: Name
+          type: string
+          jsonPath: .spec.resourceRef.name
+        - name: Owner
+          type: string
+          jsonPath: .spec.body.owner
+        - name: Color
+          type: string
+          jsonPath: .spec.body.color
+        - name: Size
+          type: integer
+          jsonPath: .spec.body.size
