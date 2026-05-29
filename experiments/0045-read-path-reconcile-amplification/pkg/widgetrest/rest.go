@@ -213,8 +213,15 @@ func (r *REST) Get(ctx context.Context, name string, _ *metav1.GetOptions) (runt
 
 	if ok {
 		if rec == nil {
-			// ADOPT: backend has it, no record. Synthesize and persist
-			// a record so the object has a stable identity + RV.
+			// Backend has it but there's no record. ADOPT
+			// (synthesize+persist a record) if adoption is on;
+			// otherwise the object is UNKNOWN and is NOT served — an
+			// unadopted foreign backend object 404s (this is the
+			// adoption-off path that suppresses shared-backend noise).
+			_, adoptOn, _ := r.policy()
+			if !adoptOn {
+				return nil, apierrors.NewNotFound(groupResource, name)
+			}
 			rec = r.adopt(ctx, ref, false)
 		}
 		return r.stitch(ns, name, body, rec), nil
@@ -241,9 +248,17 @@ func (r *REST) List(ctx context.Context, opts *metainternalversion.ListOptions) 
 	// authoritative list errors.
 	backendRefs, recByKey := r.ReconcileList(ctx, ns, false)
 
+	_, adoptOn, _ := r.policy()
 	list := &aggexp.WidgetList{}
 	for _, br := range backendRefs {
 		rec := recByKey[br.Namespace+"/"+br.Name]
+		if rec == nil && !adoptOn {
+			// Adoption off: a backend object with no record is unknown
+			// and is OMITTED from the list (suppresses shared-backend
+			// noise). With adoption on, ReconcileList already adopted
+			// it, so rec is non-nil here.
+			continue
+		}
 		obj := r.stitch(br.Namespace, br.Name, br.Body, rec)
 		if !sel.Empty() && !sel.Matches(labels.Set(obj.Labels)) {
 			continue

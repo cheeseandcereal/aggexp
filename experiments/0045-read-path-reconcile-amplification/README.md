@@ -10,11 +10,9 @@ Builds on the metadata-CR core from 0042.
 
 ## Status
 
-in-progress
+complete
 
 <!-- valid values: in-progress, complete, abandoned -->
-<!-- Scaffolded brief: hypothesis + run plan written; implementation
-     pending. Copy the 0042 metastore core into this experiment first. -->
 
 ## Prior findings this builds on
 
@@ -149,10 +147,50 @@ kind delete cluster --name aggexp-0045
 - `minAge` grace window 30s (0028 default).
 - Adoption and GC both default on, each independently toggleable; the
   toggle applies to BOTH the inline read path and the periodic sweep.
+  The toggles are the SAME variables for both paths because both call
+  the one `widgetrest.REST.ReconcileList` / `adopt` / `collect`.
 - Negative-cache is behind a flag, default off, so the un-cached
-  amplification cost is measured first.
-- Adopted objects with no namespace land in `default` (a convention to
-  record if it bites).
+  amplification cost is measured first. TTL 2s arbitrarily (short, to
+  observe expiry within a kubectl-loop's wall time).
+- Adopted objects with no namespace land in `default`.
+- Existence is queried by a DIRECT read against the host apiserver
+  (`backend.GetAuthoritative` / `ListAuthoritative`), not the informer
+  cache: the informer cache could be stale w.r.t. an out-of-band
+  mutation, and the experiment's whole point is that the backend is
+  authoritative. The informer cache is retained only for the
+  watch/stitch hot path.
+- **Adoption toggle gates VISIBILITY, not just record creation.** With
+  adoption off, an unadopted (record-less) backend object is NOT
+  served: Get 404s and List omits it. With adoption on it is adopted
+  and served. (First draft only suppressed record *creation*, which
+  still served the object — corrected mid-experiment.)
+- Negative cache is invalidated on `bodies.Put` so a create-through-
+  the-AA after a failed Get does not serve a stale 404. It is NOT
+  invalidated on out-of-band backend writes (it cannot be), so an
+  out-of-band create is masked for up to the TTL — documented in
+  FINDINGS as an inherent negative-cache tension.
+- Single-replica StatefulSet; debug/metrics HTTP endpoint on `:8444`
+  (unauthenticated, lab only), fronted by `aggexp-debug` Service.
+- Periodic sweep interval 60s in the manifest (the 0028 shape).
+- Cluster name `aggexp-0045`; `insecureSkipTLSVerify` APIService
+  (inherited 0042 lab convenience).
+
+### Results summary
+
+All five scenarios pass.
+
+| measurement | result |
+|---|---|
+| adopt on read (scenario 1) | record synthesized inline (`adopted-by: read`), appears in list, 1 backend Get |
+| collect on read, record < minAge (scenario 2) | Get 404s, record NOT collected (`collectSkippedAge`) |
+| collect on read, record > minAge (scenario 2) | Get 404s, orphan record collected inline |
+| tolerant-Get gone (scenario 3) | backend 404 → Get 404 even with finalizer; finalizer-protected record collected |
+| 404-flood, neg-cache OFF (scenario 4) | 50 served Gets → 50 backend Gets, amplification **1.0** |
+| 404-flood same name, neg-cache ON (scenario 4) | 50 served Gets → 5 backend Gets, amplification **0.1** (45 cache hits) |
+| high-QPS Gets, existing name (scenario 4) | 30 served → 30 backend, **1.0** (positives never cached) |
+| adoption ON (scenario 5) | 5 foreign backend objects surface as resources (noise) |
+| adoption OFF (scenario 5) | Get 404s for unknown objects, List omits them |
+| sweep vs inline | identical reconcile path; manual sweep adopted 3 foreign objects via the sweep counters |
 
 ## Prerequisites
 

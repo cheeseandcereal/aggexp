@@ -305,6 +305,11 @@ func (s *Store) Put(ctx context.Context, namespace, name string, b Body) error {
 	u := encodeBody(namespace, name, b)
 	u.SetName(cn)
 
+	// A write makes this object exist; drop any stale negative entry
+	// so a create-after-failed-get does not serve a phantom 404 for
+	// the remainder of the TTL.
+	s.invalidateNeg(namespace, name)
+
 	existing, err := s.dyn.Resource(GVR).Get(ctx, cn, metav1.GetOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("backend: get for put %s: %w", cn, err)
@@ -332,6 +337,18 @@ func (s *Store) Delete(ctx context.Context, namespace, name string) error {
 		return fmt.Errorf("backend: delete %s: %w", cn, err)
 	}
 	return nil
+}
+
+// invalidateNeg drops any negative-existence entry for a key. Called
+// on writes so the negative cache cannot serve a stale 404 for an
+// object that a write just created.
+func (s *Store) invalidateNeg(namespace, name string) {
+	if !s.negEnabled {
+		return
+	}
+	s.negMu.Lock()
+	delete(s.neg, namespace+"/"+name)
+	s.negMu.Unlock()
 }
 
 // GetDirect reads the body straight from the host kube-apiserver,
