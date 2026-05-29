@@ -88,13 +88,20 @@ func main() {
 		qps         = flag.Float64("qps", 300, "per-client QPS")
 		burst       = flag.Int("burst", 600, "per-client burst")
 		cleanup     = flag.Bool("cleanup", true, "delete the object at the end")
+		endpoints   = flag.String("endpoints", "", "comma-separated per-pod https endpoints (e.g. https://localhost:18443,https://localhost:18444,...). When set, writer i targets endpoint i%len DIRECTLY (round-robin), bypassing the aggregation layer's single-connection routing so contention is GENUINELY cross-replica. Auth + CA reused from the kubeconfig context.")
 	)
 	flag.Parse()
 
 	ctx := context.Background()
 
+	epList := splitNonEmpty(*endpoints)
+
 	// Build N independent clients, each with its OWN rest.Config and
-	// thus its OWN connection pool (defeats keepalive collapse).
+	// thus its OWN connection pool (defeats keepalive collapse). When
+	// -endpoints is set, writer i's client is pinned to endpoint
+	// i%len(endpoints), so a round of W writers spreads across the
+	// per-pod replicas DIRECTLY (genuine cross-replica contention,
+	// not collapsed by the aggregator's backend connection reuse).
 	maxWriters := *writers
 	clients := make([]dynamic.Interface, maxWriters)
 	for i := 0; i < maxWriters; i++ {
@@ -109,11 +116,24 @@ func main() {
 		cfg.Burst = *burst
 		// Force a distinct transport per client.
 		cfg.DisableCompression = true
+		if len(epList) > 0 {
+			// Dial the per-pod serving endpoint directly. The pod's
+			// DelegatingAuthentication accepts the kubeconfig's
+			// cluster-CA-signed client cert. The serving cert SANs do
+			// not cover localhost:PORT, so skip TLS verify (lab).
+			cfg.Host = epList[i%len(epList)]
+			cfg.Insecure = true
+			cfg.CAData = nil
+			cfg.CAFile = ""
+		}
 		dyn, err := dynamic.NewForConfig(cfg)
 		if err != nil {
 			fatalf("dynamic client %d: %v", i, err)
 		}
 		clients[i] = dyn
+	}
+	if len(epList) > 0 {
+		fmt.Printf("driving GENUINE cross-replica contention across %d direct endpoints: %v\n", len(epList), epList)
 	}
 
 	// Ensure the object exists (first create, ignore AlreadyExists).
@@ -226,6 +246,25 @@ func newWidget(ns, name, color string, size int64) *unstructured.Unstructured {
 	_ = unstructured.SetNestedField(u.Object, color, "spec", "color")
 	_ = unstructured.SetNestedField(u.Object, size, "spec", "size")
 	return u
+}
+
+func splitNonEmpty(s string) []string {
+	out := []string{}
+	cur := ""
+	for _, c := range s {
+		if c == ',' {
+			if cur != "" {
+				out = append(out, cur)
+			}
+			cur = ""
+			continue
+		}
+		cur += string(c)
+	}
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
 }
 
 func parseRV(s string) uint64 {
