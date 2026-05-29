@@ -11,12 +11,12 @@ write to the metadata CR, and this experiment quantifies the aggregate.
 
 ## Status
 
-in-progress
+complete
 
 <!-- valid values: in-progress, complete, abandoned -->
-<!-- Scaffolded brief: hypothesis + run plan written; implementation
-     (load generators + measurement harness) pending. Compose the 0043
-     and 0044 builds first. -->
+<!-- The composed 0043+0044 AA ran on a 3-replica StatefulSet in kind
+     aggexp-0047; all four scenarios produced numbers. See
+     FINDINGS/0047-host-etcd-write-ceiling.md. -->
 
 ## Prior findings this builds on
 
@@ -128,12 +128,51 @@ kind delete cluster --name aggexp-0047
 
 ## Decisions made
 
-- Load levels R ∈ {1,10,50,100}/s and N ∈ {1,25,100} watchers
-  (arbitrary; adjust to find the knee).
-- Measure via the apiserver/etcd Prometheus metrics already exposed by
-  the host kube-apiserver plus the AA's own `/metrics`.
+- Load levels: scenario 1 ramped served-write target R ∈ {1,10,50,100}/s
+  by setting the writer-pool size (writers ∈ {2,8,24,48}); scenario 3
+  ramped watchers N ∈ {1,25,100}; scenario 4 pushed writers to {200,300}
+  with distinct objects to find the etcd knee. Arbitrary, tuned to where
+  the knee appeared.
+- **Composed the build from 0044 as the base** (it already carried the
+  0042 metadata-CR core + shared body CRD + per-watcher watch +
+  `cmd/watchload`) and folded 0043's `pkg/locking` + the embedded-lock
+  CAS surface (`GetRawDirect`/`CreateRawWithLock`/`UpdateRaw`/
+  `PutBodyHashAndMeta`/`SetLockOn`/`LockFrom`) into the metastore, plus
+  `Record.Lock`/`Record.BodyHash` and the `observed`/`lock` CRD schema.
+- **Emission filter on the per-watcher path.** 0043 filtered lock churn
+  in the single-broadcaster `EventSink` path; 0044 replaced that with a
+  `RawSink` that bypasses it. So the filter was re-implemented in the
+  per-watcher REST adapter's `OnMetadataEvent`, keyed on
+  `metastore.VisibleSignature(rec)` (body hash + KRM metadata, excluding
+  RV and `spec.lock`), suppressing lock-acquire/renewal MODIFIEDs before
+  the hub fan-out.
+- **Raised the AA's dynamic-client QPS to 500/burst 1000** (flag
+  `--client-qps`/`--client-burst`). client-go's default QPS=5/burst=10
+  was the throughput gate (~1 served write/s), not host etcd — defeating
+  the ceiling measurement. With it raised, host etcd / the aggregation
+  hop is the gate. This is a measurement-harness fix, not a design knob.
+- **Relaxed the metadata CRD `spec.required` from `[resourceRef,
+  metadata]` to `[resourceRef]`** — the Create-path lock acquire
+  CAS-creates a CR carrying only `resourceRef` + `lock` before metadata
+  exists (same fix 0043 made). Added `spec.observed.bodyHash` and
+  `spec.lock` to the structural schema or CRD pruning would drop them.
+- Lease 15s / renewal every lease/3 (5s) inherited from 0032/0033/0043;
+  scenario 2 also tested lease 30s (renewal 10s).
+- Slow-backend mode is a fixed `--backend-write-delay` on every body
+  `Put` (20s in scenario 2) to force the renewal heartbeats.
+- Metrics scraped via `hack/scrape-metrics.sh`: host kube-apiserver
+  `apiserver_request_total{resource=resourcemetadatas|widgetbodies}` and
+  `etcd_request_duration_seconds` through `kubectl get --raw /metrics`
+  (RBAC for the `/metrics` nonResourceURL granted to
+  `system:authenticated`), plus the AA's `aggexp-0047-metrics` klog line
+  for the per-kind metadata-CR write attribution (lock-acquire-create /
+  lock-acquire-update / lock-renew / lock-release / commit-release /
+  delete) the host metrics cannot break out (the host only sees the verb,
+  not the intent). Counters are reset between scenarios by a StatefulSet
+  rollout restart; per-scenario figures are before/after deltas.
 - kind single-node etcd is the system under test; results are a
-  lower-bound proxy for production etcd (note this in FINDINGS).
+  lower-bound proxy for production etcd.
+
 
 ## Prerequisites
 

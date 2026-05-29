@@ -1,0 +1,26 @@
+# APIService claiming the served group/version v1.aggexp.io. Points at
+# the load-balanced `aggexp` Service by default; hack/pin-replica.sh
+# flips spec.service.name to a per-pod Service for cross-replica
+# scenarios.
+#
+# insecureSkipTLSVerify: true — when the APIService is pinned to a
+# per-pod Service (aggexp-0/1/2), the aggregation layer dials
+# aggexp-N.aggexp-system.svc, which is NOT in the lab serving cert's
+# SAN list (it only covers aggexp.aggexp-system.svc). Rather than
+# regenerate certs with per-pod SANs (the 0034 approach), 0042 skips
+# TLS verification on the aggregation hop. This is a lab convenience,
+# not a security posture; recorded as a Decision in the README.
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1.aggexp.io
+spec:
+  group: aggexp.io
+  version: v1
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: aggexp
+    namespace: aggexp-system
+    port: 443
+  insecureSkipTLSVerify: true

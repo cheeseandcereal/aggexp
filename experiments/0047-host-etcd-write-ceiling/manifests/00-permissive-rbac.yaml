@@ -1,0 +1,78 @@
+# Permissive RBAC for experiment 0042.
+#
+# 1. system:authenticated can CRUD widgets.aggexp.io through kubectl.
+# 2. The AA's ServiceAccount (aggexp) gets full CRUD on the
+#    cluster-scoped metadata CRD so its dynamic client + informer can
+#    read/write the metadata records on the host cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-widgets-permissive
+rules:
+  - apiGroups: ["aggexp.io"]
+    resources: ["widgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-widgets-permissive
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-widgets-permissive
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-resourcemetadata-backend
+rules:
+  - apiGroups: ["widgetmeta.aggexp.io"]
+    resources: ["resourcemetadatas"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["widgetbody.aggexp.io"]
+    resources: ["widgetbodies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-resourcemetadata-backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-resourcemetadata-backend
+subjects:
+  - kind: ServiceAccount
+    name: aggexp
+    namespace: aggexp-system
+---
+# 0047: allow reading the host kube-apiserver Prometheus /metrics
+# endpoint (a nonResourceURL) so hack/scrape-metrics.sh can attribute
+# the metadata-CRD write rate from apiserver_request_total and read
+# etcd_request_duration_seconds. Granted to system:authenticated so an
+# impersonated scrape identity works too.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aggexp-metrics-reader
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aggexp-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aggexp-metrics-reader
+subjects:
+  - kind: Group
+    name: system:authenticated
+    apiGroup: rbac.authorization.k8s.io
