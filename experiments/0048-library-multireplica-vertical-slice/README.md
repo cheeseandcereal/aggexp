@@ -12,11 +12,13 @@ interference? (The same question 0031 and 0041 asked of their arcs.)
 
 ## Status
 
-in-progress
+complete
 
 <!-- valid values: in-progress, complete, abandoned -->
-<!-- Scaffolded brief: hypothesis + run plan written; implementation
-     pending. Compose 0042-0045 and consume 0046's generated types. -->
+<!-- Composed 0042-0045 onto the 0046-generated widgets.aggexp.io/v1
+     Widget; ran all six scenarios against a 3-replica StatefulSet on
+     kind aggexp-0048; ran the compat scoreboard at the phase boundary.
+     See FINDINGS/0048. -->
 
 ## Prior findings this builds on
 
@@ -52,16 +54,23 @@ dated `FINDINGS/compat/` record (per AGENTS.md / ETHOS).
 ```
 generated Widget types (0046)
         │
-in-memory Widget backend ── per-watcher watch (0044)
+shared body CRD backend ── per-watcher watch (0044)
         │                     read-path reconcile (0045)
 metadata-CR store (0042) ── embedded lock + emission filter + OCC (0043)
         │
 3-replica StatefulSet, host metadata CRD = RV authority (0034 shape)
         │
-v1.<group> APIService → kube-apiserver aggregator
+v1.widgets.aggexp.io APIService → kube-apiserver aggregator
         │
    kubectl  │  client-go reflector/informer  │  controller-runtime manager
 ```
+
+The body lives on a SHARED cluster-scoped CRD
+(`widgetbodies.widgetbody.aggexp.io`), not an in-memory map: 0042
+established that a per-replica in-memory body breaks cross-replica reads
+(a write on one replica is invisible on the others). "In-memory backend"
+in the scaffold brief was superseded by that finding.
+
 
 ## What this is (files to create)
 
@@ -131,15 +140,43 @@ kind delete cluster --name aggexp-0048
 
 ## Decisions made
 
-- In-memory backend (the arc is about the metadata/RV/lock/watch
-  composition, not a real external system).
-- Watch mode chosen per the 0044 result (push if the in-memory backend
-  implements a `Watcher`; per-watcher poll otherwise); record which.
-- 3 replicas (0034 shape) so the lock and cross-replica RV are
+- **Served group is `widgets.aggexp.io`** (the 0046-generated group),
+  distinct from the metadata group (`widgetmeta.aggexp.io`) and the
+  body group (`widgetbody.aggexp.io`). An APIService claims a whole
+  group/version, so the two backing CRDs must live in their own groups.
+- **The Widget types are the 0046-GENERATED package**, copied verbatim
+  into `pkg/apis/widgets/v1/` (the openapi-def keys rewritten to this
+  module's import path so `NewDefinitionNamer` matches). No kin-openapi
+  dependency is pulled in — only the generated output, which has none.
+- **Watch mode: push** (per 0044). The shared body informer is the one
+  upstream stream fanned out per-watcher (the internal multiplex), so
+  push is cheap here. `--shared-poll` and `--watch-mode=poll` remain
+  available.
+- **Read-path reconcile (0045) stays ON** (`--adopt=true --gc=true`).
+  It coexists with the lock and per-watcher watch; measured
+  `getAmplification = 1.0` (every served Get is one backend
+  authoritative read), confirming 0045's 1:1 amplification holds under
+  the full composition.
+- **Owner is a backend-only authz tag.** The 0046-generated Widget has
+  no owner field, so the per-user authz owner (0044) is server-stamped
+  onto the body CR and never surfaced on the served Widget — the
+  capstone keeps the generated type pristine.
+- **`spec.coordinates` ($ref nested object) is omitted from the sample.**
+  The generated bare-`$ref` schema breaks the create strict decoder and
+  the SSA typed-converter under this composition
+  (`.spec.coordinates.true: field not declared in schema`) — see the
+  FINDINGS. Scalar/enum/map/array fields compose cleanly.
+- **Lease 15s, renewal Lease/3 ≈ 5s** (0032/0033/0043 inherited
+  defaults). Dynamic-client QPS raised to 200/burst 400 (the default 5
+  throttles the 2-CR-writes-per-served-write + read-path host reads).
+- **`insecureSkipTLSVerify: true`** on the APIService (lab convenience
+  for per-pod-Service replica pinning; the serving cert only SANs the
+  load-balanced `aggexp` Service).
+- **3 replicas** (0034 shape) so the lock and cross-replica RV are
   exercised, not bypassed.
-- controller-runtime is intentionally pulled in here (the experiment
-  probes its compatibility), an exception to the usual
-  "don't pull heavy frameworks into experiments" anti-pattern.
+- **controller-runtime v0.20.4** pinned (matches k8s 0.32); built with
+  `GOTOOLCHAIN=local` and `go 1.24.0` (FINDINGS/0046 toolchain trap).
+
 
 ## Prerequisites
 
