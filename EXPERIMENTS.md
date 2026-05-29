@@ -370,7 +370,15 @@ do not collide.
   validates it under real cross-replica contention, so the fix is
   experiment-validated before the multi-replica substrate promotion.
   Primary fundamental: watch and consistency semantics. Builds on 0048
-  and 0043. Status: in-progress.
+  and 0043. Status: complete — fix (a), commit-path retry covering both
+  CAS surfaces (body + metadata commit) under the held lock, converts
+  98→0 and 9→0 the 500s under contention, every loser gets a clean 409,
+  no divergence/no lost writes, fast path unchanged (max retry depth 4
+  of a 5-attempt budget). Key surprise: the bug is reachable on a SINGLE
+  replica (holder identity is the replica id, so same-replica writers
+  both take the re-entrant-acquire path) — the held lock provides no
+  intra-replica mutual exclusion; the retry loop is what makes
+  correctness. See `FINDINGS/0049-locked-write-transaction.md`.
 
 ---
 

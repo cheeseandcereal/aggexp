@@ -1039,6 +1039,31 @@ the composition holds for reads, watch, and uncontended writes, and
 needs a transactional write path to hold under cross-replica write
 contention.
 
+**The embedded lock is an admission gate, not a mutual-exclusion
+primitive; correctness comes from making the locked write a
+transaction** [`0049`]. Resolving 0048's interference #2 produced a
+sharper truth than expected. The fix that works is commit-path retry:
+keep the lock held across the body write and the metadata commit, and
+retry the *whole* acquire→body→commit sequence on a CAS conflict at any
+of the three points, surfacing budget exhaustion as 409 rather than
+500. This drove the contended 500-count to zero (from 98 same-replica /
+9 cross-replica per burst) with every loser getting a clean 409, no
+divergence between the body and metadata stores, no lost writes, and
+zero extra writes on the uncontended fast path (max retry depth 4 of a
+5-attempt budget). The surprise: same-replica contention produced
+*more* 500s than cross-replica, because the lock's holder identity is
+the replica id — two writers on the same replica both pass the
+re-entrant acquire and then race the post-acquire writes. So the held
+lock provides no intra-replica mutual exclusion at all; it is an
+admission gate, and **the retry loop, not the lock, is what makes the
+write correct**. The alternative fix (fold the commit into the
+acquire-release CAS so there is "one CAS point per write") is
+unachievable for free in this split-store design, because the body
+lives on a separate RV-blind CRD whose CAS conflict is independent of
+the metadata CR's RV — and that body race was the dominant 500 source.
+The transactional write path is the shape the multi-replica substrate
+promotion carries.
+
 Still unmeasured:
 
 - CA rotation with simultaneous `APIService.caBundle` rotation.
