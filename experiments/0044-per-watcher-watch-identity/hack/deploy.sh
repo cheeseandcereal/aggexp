@@ -58,7 +58,12 @@ do
 done
 
 # StatefulSet with image substitution.
-AGGEXP_IMAGE="${IMAGE}" envsubst < "${EXP}/manifests/30-aggexp-statefulset.yaml" | kubectl apply -f -
+AGGEXP_IMAGE="${IMAGE}" \
+WATCH_MODE="${WATCH_MODE:-push}" \
+SHARED_POLL="${SHARED_POLL:-false}" \
+POLL_INTERVAL="${POLL_INTERVAL:-5s}" \
+UPSTREAM_BUDGET="${UPSTREAM_BUDGET:-0}" \
+  envsubst < "${EXP}/manifests/30-aggexp-statefulset.yaml" | kubectl apply -f -
 
 # --- 4. wait for rollout ---
 kubectl -n aggexp-system rollout status statefulset/aggexp --timeout=180s

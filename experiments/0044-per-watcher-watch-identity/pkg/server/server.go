@@ -1,6 +1,6 @@
 // Package server wires the substrate's generic Options into
-// experiment 0042's scheme + stitched metadata-CR store with host-RV
-// authority and an in-memory Widget body backend.
+// experiment 0044's scheme + stitched metadata-CR store with host-RV
+// authority and a per-watcher, identity-aware Widget body backend.
 package server
 
 import (
@@ -16,12 +16,14 @@ import (
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/client-go/dynamic"
 	clientrest "k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 
 	aggexpv1 "github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/apis/aggexp/v1"
 	"github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/apiserver"
 	"github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/backend"
 	generatedopenapi "github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/generated/openapi"
 	"github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/metastore"
+	perwatch "github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/watch"
 	"github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/widgetrest"
 	"github.com/cheeseandcereal/aggexp/runtime/group"
 	runtimeserver "github.com/cheeseandcereal/aggexp/runtime/server"
@@ -31,15 +33,41 @@ import (
 type Options struct {
 	*runtimeserver.Options
 
-	// ResyncPeriod for the metadata-CRD shared informer.
+	// ResyncPeriod for the metadata-CRD and body-CRD shared informers.
 	ResyncPeriod time.Duration
+
+	// WatchMode selects the per-watcher live source: "push" or "poll".
+	WatchMode string
+
+	// SharedPoll runs one system-identity poll loop for all watchers
+	// (no per-user authz) instead of per-watcher backend access.
+	SharedPoll bool
+
+	// PollInterval is the per-watcher / shared poll cadence.
+	PollInterval time.Duration
+
+	// UpstreamBudget caps concurrent backend push subscriptions
+	// (internal-multiplex pressure knob). 0 = unlimited.
+	UpstreamBudget int
+
+	// BufferSize is the per-watcher and per-subscriber channel buffer.
+	BufferSize int
+
+	// MetricsInterval logs backend + hub counters at this cadence.
+	MetricsInterval time.Duration
 }
 
 // NewOptions returns Options with defaults.
 func NewOptions() *Options {
 	return &Options{
-		Options:      runtimeserver.NewOptions(),
-		ResyncPeriod: 30 * time.Second,
+		Options:         runtimeserver.NewOptions(),
+		ResyncPeriod:    30 * time.Second,
+		WatchMode:       "push",
+		SharedPoll:      false,
+		PollInterval:    5 * time.Second,
+		UpstreamBudget:  0,
+		BufferSize:      100,
+		MetricsInterval: 10 * time.Second,
 	}
 }
 
@@ -50,6 +78,18 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) {
 	o.Options.Title = "aggexp-widgets"
 	fs.DurationVar(&o.ResyncPeriod, "informer-resync", o.ResyncPeriod,
 		"resync period for the metadata-CRD shared informer")
+	fs.StringVar(&o.WatchMode, "watch-mode", o.WatchMode,
+		"per-watcher live source: push | poll")
+	fs.BoolVar(&o.SharedPoll, "shared-poll", o.SharedPoll,
+		"run ONE system-identity poll loop for all watchers (cheaper; does NOT enforce per-user authz)")
+	fs.DurationVar(&o.PollInterval, "poll-interval", o.PollInterval,
+		"per-watcher / shared poll cadence")
+	fs.IntVar(&o.UpstreamBudget, "upstream-budget", o.UpstreamBudget,
+		"cap on concurrent backend push subscriptions (internal-multiplex pressure knob); 0 = unlimited")
+	fs.IntVar(&o.BufferSize, "watch-buffer", o.BufferSize,
+		"per-watcher channel buffer size")
+	fs.DurationVar(&o.MetricsInterval, "metrics-interval", o.MetricsInterval,
+		"interval to log backend + hub instrumentation counters")
 }
 
 // Validate composes the substrate validator.
@@ -57,6 +97,9 @@ func (o *Options) Validate() error {
 	var errs []error
 	if err := o.Options.Validate(); err != nil {
 		errs = append(errs, err)
+	}
+	if o.WatchMode != "push" && o.WatchMode != "poll" {
+		errs = append(errs, fmt.Errorf("invalid --watch-mode %q (want push|poll)", o.WatchMode))
 	}
 	return utilerrors.NewAggregate(errs)
 }
@@ -94,10 +137,11 @@ func (o *Options) Run(ctx context.Context) error {
 	}
 
 	bodies := backend.New(backend.Options{
-		Dynamic:      dyn,
-		FieldManager: "aggexp-widgets",
-		ReplicaID:    replicaID,
-		ResyncPeriod: o.ResyncPeriod,
+		Dynamic:        dyn,
+		FieldManager:   "aggexp-widgets",
+		ReplicaID:      replicaID,
+		ResyncPeriod:   o.ResyncPeriod,
+		UpstreamBudget: o.UpstreamBudget,
 	})
 	store := metastore.New(metastore.Options{
 		Dynamic:      dyn,
@@ -107,9 +151,14 @@ func (o *Options) Run(ctx context.Context) error {
 		ReplicaID:    replicaID,
 		ResyncPeriod: o.ResyncPeriod,
 	})
-	widgets := widgetrest.New(store, bodies, replicaID, 100)
-	store.SetSink(widgets)
-	store.SetStitcher(widgets)
+
+	mode := perwatch.ModePush
+	if o.WatchMode == "poll" {
+		mode = perwatch.ModePoll
+	}
+	widgets := widgetrest.New(store, bodies, replicaID, mode, o.SharedPoll, o.PollInterval, o.BufferSize)
+	// Per-watcher Hub consumes raw metadata-CR informer events.
+	store.SetRawSink(widgets)
 
 	g := &group.Group{
 		GroupVersion:   aggexpv1.SchemeGroupVersion,
@@ -124,16 +173,39 @@ func (o *Options) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("creating apiserver: %w", err)
 	}
-	if err := srv.AddPostStartHook("metastore-informer-start", func(hookCtx genericapiserver.PostStartHookContext) error {
-		// Start the body informer first so the metastore's informer
-		// events (which drive watch fan-out and call StitchForRef →
-		// body lookup) find a synced body cache.
+	if err := srv.AddPostStartHook("aggexp-0044-start", func(hookCtx genericapiserver.PostStartHookContext) error {
 		if berr := bodies.Start(hookCtx.Context); berr != nil {
 			return berr
 		}
 		if serr := store.Start(hookCtx.Context); serr != nil {
 			return serr
 		}
+		if o.SharedPoll {
+			go widgets.Hub().RunSharedPoll(hookCtx.Context)
+			klog.InfoS("shared-poll-loop-started", "replica", replicaID, "interval", o.PollInterval)
+		}
+		// Instrumentation: periodically log backend + hub counters so
+		// the 0044 scenarios can read backend-call volume, watcher
+		// count, and Get-cache hit/miss from the logs.
+		go func() {
+			t := time.NewTicker(o.MetricsInterval)
+			defer t.Stop()
+			for {
+				select {
+				case <-hookCtx.Context.Done():
+					return
+				case <-t.C:
+					klog.InfoS("aggexp-0044-metrics",
+						"replica", replicaID,
+						"mode", o.WatchMode,
+						"sharedPoll", o.SharedPoll,
+						"upstreamBudget", o.UpstreamBudget,
+						"backend", bodies.Counters.Snapshot(),
+						"hub", widgets.Hub().Counters.Snapshot(),
+					)
+				}
+			}
+		}()
 		go func() {
 			<-hookCtx.Context.Done()
 			widgets.Shutdown()

@@ -53,6 +53,7 @@ type Widget struct {
 type WidgetSpec struct {
 	Color string
 	Size  int32
+	Owner string
 }
 
 // WidgetStatus is observation state. Backend-only.
@@ -77,7 +78,7 @@ func (in *Widget) DeepCopy() *Widget {
 	out := new(Widget)
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	out.Spec = WidgetSpec{Color: in.Spec.Color, Size: in.Spec.Size}
+	out.Spec = WidgetSpec{Color: in.Spec.Color, Size: in.Spec.Size, Owner: in.Spec.Owner}
 	out.Status = WidgetStatus{Phase: in.Status.Phase}
 	return out
 }

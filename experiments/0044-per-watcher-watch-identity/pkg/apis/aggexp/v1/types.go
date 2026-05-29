@@ -29,6 +29,12 @@ type WidgetSpec struct {
 
 	// Size is an arbitrary int32.
 	Size int32 `json:"size,omitempty"`
+
+	// Owner is the caller identity that created the Widget. It is
+	// server-stamped from the request's user.Info on Create and is
+	// the field per-user watch/list authorization filters on in
+	// experiment 0044. A client-supplied value is overwritten.
+	Owner string `json:"owner,omitempty"`
 }
 
 // WidgetStatus is observation state.

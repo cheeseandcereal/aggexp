@@ -193,6 +193,13 @@ func schema_pkg_apis_aggexp_v1_WidgetSpec(ref common.ReferenceCallback) common.O
 							Format:      "int32",
 						},
 					},
+					"owner": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Owner is the server-stamped caller identity (user.Info) that created the Widget; per-user watch authorization filters on it.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 				},
 			},
 		},

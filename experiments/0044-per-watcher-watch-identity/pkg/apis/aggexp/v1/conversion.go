@@ -36,7 +36,7 @@ func addConversionFuncs(scheme *runtime.Scheme) error {
 func convertV1ToInternal(in *Widget, out *aggexp.Widget) error {
 	out.TypeMeta = in.TypeMeta
 	out.ObjectMeta = in.ObjectMeta
-	out.Spec = aggexp.WidgetSpec{Color: in.Spec.Color, Size: in.Spec.Size}
+	out.Spec = aggexp.WidgetSpec{Color: in.Spec.Color, Size: in.Spec.Size, Owner: in.Spec.Owner}
 	out.Status = aggexp.WidgetStatus{Phase: in.Status.Phase}
 	return nil
 }
@@ -44,7 +44,7 @@ func convertV1ToInternal(in *Widget, out *aggexp.Widget) error {
 func convertInternalToV1(in *aggexp.Widget, out *Widget) error {
 	out.TypeMeta = in.TypeMeta
 	out.ObjectMeta = in.ObjectMeta
-	out.Spec = WidgetSpec{Color: in.Spec.Color, Size: in.Spec.Size}
+	out.Spec = WidgetSpec{Color: in.Spec.Color, Size: in.Spec.Size, Owner: in.Spec.Owner}
 	out.Status = WidgetStatus{Phase: in.Status.Phase}
 	return nil
 }

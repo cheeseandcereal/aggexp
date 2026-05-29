@@ -1,24 +1,25 @@
-// Package widgetrest is experiment 0042's stitched, host-RV rest.Storage
-// for aggexp.io/v1 Widget. It is the synthesis the experiment exists to
-// test:
+// Package widgetrest is experiment 0044's PER-WATCHER, identity-aware
+// rest.Storage for aggexp.io/v1 Widget. It builds on the 0042 stitched
+// host-RV core and INVERTS the single-global watch:
 //
-//   - The business body (spec + status) comes from an in-memory backend
-//     (pkg/backend) that is RV-blind.
+//   - The business body (spec + status + owner) comes from a shared,
+//     cross-replica body CRD backend (pkg/backend) that is RV-blind
+//     and owner-filtered.
 //   - The KRM metadata + the authoritative resourceVersion come from a
 //     cluster-scoped metadata CR on the host cluster (pkg/metastore).
 //   - Every served object's metadata.resourceVersion is the host etcd
-//     RV of its metadata CR — NEVER a backend RV, NEVER a per-replica
-//     counter.
-//   - Watch events are driven by the metadata CRD informer and carry
-//     the metadata CR's RV. List stamps ListMeta.resourceVersion from
-//     the metastore's high-water RV.
-//   - Unknown resume RV replays current list-state (the 0034 contract),
-//     never 410.
+//     RV of its metadata CR.
+//   - Each client Watch subscription gets its OWN per-watcher pipeline
+//     (pkg/watch.Hub) carrying that caller's user.Info and its own
+//     backend access (push: Backend.WatchFor; poll: Backend.ListFor).
+//     The shared metadata informer is the RV authority + cross-replica
+//     trigger; each metadata event drives a per-watcher Backend.GetFor
+//     (the watcher's identity), deduped within the fan-out by
+//     (identity, ns, name).
+//   - SharedPoll mode recovers the single-global-watch cost at the
+//     price of per-user authz.
 //
-// It is a parallel implementation to runtime/storage.REST and 0034's
-// shared.REST, intentionally not a wrapper: the substrate adapter's
-// per-replica RV stamping (atomic.Uint64) is exactly what 0042
-// bypasses. Code is duplicated from 0024/0034 per the lab ethos.
+// Code is duplicated from 0042/0034/0024 per the lab ethos.
 package widgetrest
 
 import (
@@ -32,14 +33,14 @@ import (
 	"github.com/google/uuid"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/watch"
+	apiwatch "k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apiserver/pkg/authentication/user"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/klog/v2"
@@ -48,6 +49,7 @@ import (
 	aggexpv1 "github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/apis/aggexp/v1"
 	"github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/backend"
 	"github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/metastore"
+	perwatch "github.com/cheeseandcereal/aggexp/experiments/0044-per-watcher-watch-identity/pkg/watch"
 )
 
 const (
@@ -58,40 +60,55 @@ const (
 
 var groupResource = schema.GroupResource{Group: servedGroup, Resource: servedResource}
 
-// REST is the stitched host-RV adapter.
+// REST is the per-watcher, identity-aware stitched host-RV adapter.
 type REST struct {
 	store     *metastore.Store
 	bodies    *backend.Store
 	replicaID string
-
-	bcaster *watch.Broadcaster
+	hub       *perwatch.Hub
+	mode      perwatch.Mode
 
 	mu    sync.RWMutex
 	curRV string // last observed metadata-CR RV (host etcd authority)
 }
 
-// New constructs a REST. broadcasterSize defaults to 100.
-func New(store *metastore.Store, bodies *backend.Store, replicaID string, broadcasterSize int) *REST {
-	if broadcasterSize <= 0 {
-		broadcasterSize = 100
-	}
-	return &REST{
+// New constructs a REST plus its per-watcher Hub.
+func New(store *metastore.Store, bodies *backend.Store, replicaID string, mode perwatch.Mode, sharedPoll bool, pollInterval time.Duration, bufferSize int) *REST {
+	r := &REST{
 		store:     store,
 		bodies:    bodies,
 		replicaID: replicaID,
-		bcaster:   watch.NewBroadcaster(broadcasterSize, watch.DropIfChannelFull),
+		mode:      mode,
 	}
+	r.hub = perwatch.NewHub(perwatch.HubOptions{
+		Backend:      bodies,
+		Stitcher:     r,
+		SharedPoll:   sharedPoll,
+		PollInterval: pollInterval,
+		BufferSize:   bufferSize,
+	})
+	return r
 }
 
-// Shutdown stops the broadcaster.
-func (r *REST) Shutdown() { r.bcaster.Shutdown() }
+// Hub exposes the per-watcher hub (for the shared-poll loop start and
+// instrumentation logging).
+func (r *REST) Hub() *perwatch.Hub { return r.hub }
 
-// ---- metastore.EventSink ----
+// Shutdown is a no-op (per-watcher pipelines stop with their request
+// contexts); kept for symmetry with the 0042 adapter.
+func (r *REST) Shutdown() {}
 
-func (r *REST) Action(et watch.EventType, obj runtime.Object) {
-	if err := r.bcaster.Action(et, obj); err != nil {
-		klog.V(2).InfoS("broadcaster-action-failed", "err", err)
+// ---- metastore.RawSink ----
+
+// OnMetadataEvent forwards a metadata-CR informer event to the hub's
+// per-watcher fan-out.
+func (r *REST) OnMetadataEvent(et apiwatch.EventType, ref metastore.ResourceRef, rv string) {
+	r.mu.Lock()
+	if rvLess(r.curRV, rv) {
+		r.curRV = rv
 	}
+	r.mu.Unlock()
+	r.hub.OnMetadataEvent(et, ref, rv)
 }
 
 func (r *REST) CurrentResourceVersion() string {
@@ -100,30 +117,23 @@ func (r *REST) CurrentResourceVersion() string {
 	return r.curRV
 }
 
-func (r *REST) SetCurrentResourceVersion(rv string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if rvLess(r.curRV, rv) {
-		r.curRV = rv
-	}
-}
+// ---- perwatch.Stitcher ----
 
-// ---- metastore.Stitcher ----
-
-// StitchForRef is called by the informer event path. It fetches the
-// body from the in-memory backend and overlays the Record's metadata
-// (including the host RV). Returns (nil, false) if the body is absent.
-func (r *REST) StitchForRef(ref metastore.ResourceRef, rec *metastore.Record) (runtime.Object, bool) {
-	body, ok := r.bodies.Get(ref.Namespace, ref.Name)
+// StitchFor implements perwatch.Stitcher: fetch the body via the
+// backend using the WATCHER's identity (Backend.GetFor — applies
+// per-user authz), overlay the metadata CR's RV. Returns (nil,false)
+// if the caller may not see the object or it is absent.
+func (r *REST) StitchFor(u user.Info, ns, name string) (runtime.Object, bool) {
+	body, ok := r.bodies.GetFor(u, ns, name)
 	if !ok {
-		// The metadata-CR event may have raced ahead of the body
-		// informer cache; read the body direct.
-		body, ok = r.bodies.GetDirect(context.Background(), ref.Namespace, ref.Name)
-		if !ok {
-			return nil, false
-		}
+		return nil, false
 	}
-	return r.stitch(ref.Namespace, ref.Name, body, rec), true
+	ref := r.refFor(ns, name)
+	rec, _ := r.store.GetFromCache(ref)
+	if rec == nil {
+		rec, _ = r.store.GetDirect(context.Background(), ref)
+	}
+	return r.stitch(ns, name, body, rec), true
 }
 
 // ---- identity / shape ----
@@ -139,14 +149,19 @@ func (r *REST) GetSingularName() string { return "widget" }
 
 func (r *REST) Get(ctx context.Context, name string, _ *metav1.GetOptions) (runtime.Object, error) {
 	ns, _ := genericapirequest.NamespaceFrom(ctx)
-	body, ok := r.bodies.Get(ns, name)
+	u, _ := genericapirequest.UserFrom(ctx)
+	// Identity-aware read: a caller may only Get a Widget it owns
+	// (system identities see all). This makes per-user authz
+	// observable on the unary path too.
+	body, ok := r.bodies.GetFor(u, ns, name)
 	if !ok {
 		// Cache may lag a very recent write; fall back to a direct
-		// read against the host cluster.
-		body, ok = r.bodies.GetDirect(ctx, ns, name)
-		if !ok {
+		// owner-checked read.
+		raw, present := r.bodies.GetDirect(ctx, ns, name)
+		if !present || !maySee(u, raw) {
 			return nil, apierrors.NewNotFound(groupResource, name)
 		}
+		body = raw
 	}
 	ref := r.refFor(ns, name)
 	rec, err := r.store.GetFromCache(ref)
@@ -154,8 +169,6 @@ func (r *REST) Get(ctx context.Context, name string, _ *metav1.GetOptions) (runt
 		klog.Warningf("metastore cache get failed ref=%s: %v", refLog(ref), err)
 	}
 	if rec == nil {
-		// Cache lag on the metadata CR; read direct so the writer
-		// sees its own RV immediately.
 		rec, _ = r.store.GetDirect(ctx, ref)
 	}
 	return r.stitch(ns, name, body, rec), nil
@@ -165,6 +178,7 @@ func (r *REST) Get(ctx context.Context, name string, _ *metav1.GetOptions) (runt
 
 func (r *REST) List(ctx context.Context, opts *metainternalversion.ListOptions) (runtime.Object, error) {
 	ns, _ := genericapirequest.NamespaceFrom(ctx)
+	u, _ := genericapirequest.UserFrom(ctx)
 	sel := selectorFrom(opts)
 
 	records, maxRV, err := r.store.ListFromCache()
@@ -177,7 +191,9 @@ func (r *REST) List(ctx context.Context, opts *metainternalversion.ListOptions) 
 	}
 
 	list := &aggexp.WidgetList{}
-	for _, br := range r.bodies.List(ns) {
+	// Identity-aware List: ListFor returns only bodies the caller may
+	// see (owner match or system identity).
+	for _, br := range r.bodies.ListFor(u, ns) {
 		rec := byKey[br.Namespace+"/"+br.Name]
 		obj := r.stitch(br.Namespace, br.Name, br.Body, rec)
 		if !sel.Empty() && !sel.Matches(labels.Set(obj.Labels)) {
@@ -186,9 +202,6 @@ func (r *REST) List(ctx context.Context, opts *metainternalversion.ListOptions) 
 		list.Items = append(list.Items, *obj)
 	}
 
-	// Stamp the list RV from the metastore high-water mark — the host
-	// etcd RV authority. Prefer the informer-observed high-water mark
-	// (curRV), fall back to the max record RV from this list.
 	listRV := r.CurrentResourceVersion()
 	if rvLess(listRV, maxRV) {
 		listRV = maxRV
@@ -197,59 +210,57 @@ func (r *REST) List(ctx context.Context, opts *metainternalversion.ListOptions) 
 	return list, nil
 }
 
-// ---- Watcher ----
+// ---- Watcher (per-watcher inversion) ----
 
-func (r *REST) Watch(ctx context.Context, opts *metainternalversion.ListOptions) (watch.Interface, error) {
+func (r *REST) Watch(ctx context.Context, opts *metainternalversion.ListOptions) (apiwatch.Interface, error) {
+	ns, _ := genericapirequest.NamespaceFrom(ctx)
+	u, _ := genericapirequest.UserFrom(ctx)
+	sel := selectorFrom(opts)
+
 	requested := ""
 	if opts != nil {
 		requested = opts.ResourceVersion
 	}
-	r.mu.RLock()
-	cur := r.curRV
-	r.mu.RUnlock()
 	if requested != "" && requested != "0" {
-		// 0034 contract: tolerate any host RV. We keep no event log,
-		// so a resume replays current list-state as ADDED prefix
-		// events. Never 410; never silently miss events. This is what
-		// makes cross-replica resume-by-RV work — replica B can honor
-		// an RV minted while the client was talking to replica A
-		// because both observe the same etcd RV stream.
-		klog.V(3).InfoS("watch-resume", "replica", r.replicaID, "requestedRV", requested, "currentRV", cur)
+		// 0034 contract: tolerate any host RV; replay current state.
+		klog.V(3).InfoS("watch-resume", "replica", r.replicaID, "requestedRV", requested, "user", userName(u))
 	}
 
-	initial, err := r.List(ctx, opts)
-	if err != nil {
-		return nil, err
-	}
-	list := initial.(*aggexp.WidgetList)
-	prefix := make([]watch.Event, 0, len(list.Items))
-	for i := range list.Items {
-		prefix = append(prefix, watch.Event{Type: watch.Added, Object: &list.Items[i]})
-	}
+	// Initial replay: owner-filtered, RV-stamped current state. This
+	// is the per-watcher Backend.ListFor read (poll-mode initial; push
+	// mode also replays before live events).
+	initial := r.initialReplay(u, ns, sel)
 
-	w, err := r.bcaster.WatchWithPrefix(prefix)
-	if err != nil {
-		return nil, err
-	}
+	w := r.hub.NewWatch(ctx, u, ns, sel, r.mode, initial)
+	return w, nil
+}
 
-	ns, _ := genericapirequest.NamespaceFrom(ctx)
-	sel := selectorFrom(opts)
-	if sel.Empty() && ns == "" {
-		return w, nil
+// initialReplay builds the owner-filtered ADDED prefix for a new
+// per-watcher subscription.
+func (r *REST) initialReplay(u user.Info, ns string, sel labels.Selector) []runtime.Object {
+	records, _, _ := r.store.ListFromCache()
+	byKey := map[string]*metastore.Record{}
+	for _, rec := range records {
+		byKey[rec.Ref.Namespace+"/"+rec.Ref.Name] = rec
 	}
-	return watch.Filter(w, func(ev watch.Event) (watch.Event, bool) {
-		acc, aerr := meta.Accessor(ev.Object)
-		if aerr != nil {
-			return ev, true
+	out := []runtime.Object{}
+	// In SharedPoll mode the replay is NOT owner-filtered (no per-user
+	// authz); in per-watcher mode it is.
+	var refs []backend.Ref
+	if r.hub.SharedPoll() {
+		refs = r.bodies.List(ns)
+	} else {
+		refs = r.bodies.ListFor(u, ns)
+	}
+	for _, br := range refs {
+		rec := byKey[br.Namespace+"/"+br.Name]
+		obj := r.stitch(br.Namespace, br.Name, br.Body, rec)
+		if !sel.Empty() && !sel.Matches(labels.Set(obj.Labels)) {
+			continue
 		}
-		if ns != "" && acc.GetNamespace() != ns {
-			return ev, false
-		}
-		if !sel.Empty() && !sel.Matches(labels.Set(acc.GetLabels())) {
-			return ev, false
-		}
-		return ev, true
-	}), nil
+		out = append(out, obj)
+	}
+	return out
 }
 
 // ---- TableConvertor ----
@@ -257,6 +268,7 @@ func (r *REST) Watch(ctx context.Context, opts *metainternalversion.ListOptions)
 func (r *REST) ConvertToTable(_ context.Context, object runtime.Object, _ runtime.Object) (*metav1.Table, error) {
 	t := &metav1.Table{ColumnDefinitions: []metav1.TableColumnDefinition{
 		{Name: "Name", Type: "string", Format: "name"},
+		{Name: "Owner", Type: "string"},
 		{Name: "Color", Type: "string"},
 		{Name: "Size", Type: "integer"},
 		{Name: "Phase", Type: "string"},
@@ -268,7 +280,7 @@ func (r *REST) ConvertToTable(_ context.Context, object runtime.Object, _ runtim
 			age = time.Since(w.CreationTimestamp.Time).Round(time.Second).String()
 		}
 		return metav1.TableRow{
-			Cells:  []interface{}{w.Name, w.Spec.Color, int64(w.Spec.Size), w.Status.Phase, age},
+			Cells:  []interface{}{w.Name, w.Spec.Owner, w.Spec.Color, int64(w.Spec.Size), w.Status.Phase, age},
 			Object: runtime.RawExtension{Object: w},
 		}
 	}
@@ -306,23 +318,21 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 	if w.Name == "" {
 		return nil, apierrors.NewBadRequest("metadata.name is required")
 	}
+	// Server-stamp the owner from the caller's user.Info. A
+	// client-supplied owner is overwritten — identity is authoritative.
+	if u, has := genericapirequest.UserFrom(ctx); has && u != nil {
+		w.Spec.Owner = u.GetName()
+	}
 	if _, exists := r.bodies.GetDirect(ctx, w.Namespace, w.Name); exists {
 		return nil, apierrors.NewAlreadyExists(groupResource, w.Name)
 	}
 
 	ref := r.refFor(w.Namespace, w.Name)
 
-	// Step 1: store the body on the shared body CRD FIRST, so that
-	// when the metadata-CR informer event fires (step 2) every
-	// replica's StitchForRef can find the body. The body CR's RV is
-	// discarded — never surfaced.
 	if berr := r.bodies.Put(ctx, w.Namespace, w.Name, backend.BodyFromWidget(w)); berr != nil {
 		return nil, apierrors.NewInternalError(fmt.Errorf("backend.Put: %w", berr))
 	}
 
-	// Step 2: persist the metadata CR. Its host etcd RV becomes the
-	// authoritative RV of the stitched object, and its informer event
-	// drives the watch fan-out on every replica.
 	rec := recordFromObject(w, ref)
 	if rec.UID == "" {
 		rec.UID = uuid.NewString()
@@ -332,16 +342,13 @@ func (r *REST) Create(ctx context.Context, obj runtime.Object, createValidation 
 	}
 	storedRec, err := r.store.Put(ctx, rec)
 	if err != nil {
-		// Roll back the body so a retry is clean.
 		_ = r.bodies.Delete(ctx, w.Namespace, w.Name)
 		return nil, apierrors.NewInternalError(fmt.Errorf("metastore.Put: %w", err))
 	}
 
 	stitched := r.stitch(w.Namespace, w.Name, backend.BodyFromWidget(w), storedRec)
-	// Do NOT publish here: the metadata-CRD informer will fire the
-	// broadcaster with the host-RV-stamped object, so the writer's
-	// own watch sees the event the same way cross-replica watchers
-	// do (0034 dedup contract).
+	// The metadata-CR informer fires the per-watcher fan-out with the
+	// host-RV-stamped object; do not publish here.
 	return stitched, nil
 }
 
@@ -402,9 +409,14 @@ func (r *REST) Update(
 		}
 	}
 
+	// Preserve the original owner on update (identity stamped at
+	// Create is authoritative; an Update keeps it).
+	if cur, isCur := current.(*aggexp.Widget); isCur && cur.Spec.Owner != "" {
+		w.Spec.Owner = cur.Spec.Owner
+	}
+
 	ref := r.refFor(w.Namespace, name)
 	rec := recordFromObject(w, ref)
-	// Preserve server-managed fields from the prior Record.
 	if prior, _ := r.store.GetFromCache(ref); prior != nil {
 		if rec.UID == "" {
 			rec.UID = prior.UID
@@ -423,8 +435,6 @@ func (r *REST) Update(
 		rec.CreationTimestamp = metav1.NewTime(time.Now().UTC())
 	}
 
-	// Write the body first so the metadata-CR MODIFIED event finds
-	// the updated body on every replica.
 	if berr := r.bodies.Put(ctx, w.Namespace, name, backend.BodyFromWidget(w)); berr != nil {
 		return nil, false, apierrors.NewInternalError(fmt.Errorf("backend.Put: %w", berr))
 	}
@@ -434,7 +444,6 @@ func (r *REST) Update(
 	}
 
 	stitched := r.stitch(w.Namespace, name, backend.BodyFromWidget(w), storedRec)
-	// Informer publishes the MODIFIED event with host RV.
 	return stitched, false, nil
 }
 
@@ -452,29 +461,19 @@ func (r *REST) Delete(ctx context.Context, name string, deleteValidation rest.Va
 		}
 	}
 	ref := r.refFor(ns, name)
-	// Delete the metadata CR first: its informer DELETE event fires
-	// while the body still exists, so StitchForRef can build the
-	// final (deleted) object carrying the metadata CR's last RV.
-	// Then delete the body. We also publish a DELETED here directly
-	// (with the prior stitched object) as a safety net for the
-	// writer replica's own watchers.
 	if derr := r.store.Delete(ctx, ref); derr != nil {
 		return nil, false, apierrors.NewInternalError(derr)
 	}
 	if berr := r.bodies.Delete(ctx, ns, name); berr != nil {
 		klog.Warningf("backend.Delete failed ns=%s name=%s: %v", ns, name, berr)
 	}
-	r.Action(watch.Deleted, prior)
+	// The metadata-CR DELETE informer event drives the per-watcher
+	// fan-out (owner-filtered). No direct publish.
 	return prior, true, nil
 }
 
 // ---- stitch ----
 
-// stitch overlays a Record's metadata (and host RV) onto a body to
-// produce the served Widget. If rec is nil, synthesizes in-memory
-// defaults WITHOUT a real RV (uses the current informer high-water
-// mark) — this only happens transiently before the metadata CR's
-// informer event lands.
 func (r *REST) stitch(namespace, name string, body backend.Body, rec *metastore.Record) *aggexp.Widget {
 	w := &aggexp.Widget{}
 	w.TypeMeta.Kind = "Widget"
@@ -490,7 +489,7 @@ func (r *REST) stitch(namespace, name string, body backend.Body, rec *metastore.
 		return w
 	}
 	w.UID = types.UID(rec.UID)
-	w.ResourceVersion = rec.RecordRV // <-- THE load-bearing line.
+	w.ResourceVersion = rec.RecordRV // host etcd RV authority.
 	if !rec.CreationTimestamp.IsZero() {
 		w.CreationTimestamp = rec.CreationTimestamp
 	}
@@ -551,6 +550,32 @@ func selectorFrom(opts *metainternalversion.ListOptions) labels.Selector {
 	return opts.LabelSelector
 }
 
+func maySee(u user.Info, b backend.Body) bool {
+	if u == nil {
+		return true
+	}
+	for _, g := range u.GetGroups() {
+		if g == "system:masters" {
+			return true
+		}
+	}
+	n := u.GetName()
+	if n == "system:kube-aggregator" || n == "system:apiserver" {
+		return true
+	}
+	if len(n) >= len("system:serviceaccount:") && n[:len("system:serviceaccount:")] == "system:serviceaccount:" {
+		return true
+	}
+	return b.Owner == n
+}
+
+func userName(u user.Info) string {
+	if u == nil {
+		return "<nil>"
+	}
+	return u.GetName()
+}
+
 func rvLess(a, b string) bool {
 	if a == "" {
 		return b != ""
@@ -585,8 +610,6 @@ func refLog(r metastore.ResourceRef) string {
 	return fmt.Sprintf("%s/%s/%s/%s", r.Group, r.Resource, ns, r.Name)
 }
 
-
-
 // Compile-time assertions.
 var (
 	_ rest.Storage              = (*REST)(nil)
@@ -601,6 +624,6 @@ var (
 	_ rest.Updater              = (*REST)(nil)
 	_ rest.Patcher              = (*REST)(nil)
 	_ rest.GracefulDeleter      = (*REST)(nil)
-	_ metastore.EventSink       = (*REST)(nil)
-	_ metastore.Stitcher        = (*REST)(nil)
+	_ metastore.RawSink         = (*REST)(nil)
+	_ perwatch.Stitcher         = (*REST)(nil)
 )

@@ -61,6 +61,8 @@ spec:
                       format: int32
                     phase:
                       type: string
+                    owner:
+                      type: string
       additionalPrinterColumns:
         - name: Namespace
           type: string
@@ -68,6 +70,9 @@ spec:
         - name: Name
           type: string
           jsonPath: .spec.resourceRef.name
+        - name: Owner
+          type: string
+          jsonPath: .spec.body.owner
         - name: Color
           type: string
           jsonPath: .spec.body.color

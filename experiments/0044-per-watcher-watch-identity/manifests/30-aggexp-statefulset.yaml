@@ -33,6 +33,11 @@ spec:
             - --secure-port=8443
             - --enable-priority-and-fairness=false
             - --informer-resync=30s
+            - --watch-mode=${WATCH_MODE}
+            - --shared-poll=${SHARED_POLL}
+            - --poll-interval=${POLL_INTERVAL}
+            - --upstream-budget=${UPSTREAM_BUDGET}
+            - --metrics-interval=5s
             - --v=2
           env:
             - name: HOSTNAME

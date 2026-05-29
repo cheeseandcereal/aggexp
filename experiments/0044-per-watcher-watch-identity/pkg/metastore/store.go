@@ -113,6 +113,16 @@ type EventSink interface {
 	SetCurrentResourceVersion(rv string)
 }
 
+// RawSink receives metadata-CR informer events as (type, ref, RV)
+// WITHOUT a pre-stitched object. Experiment 0044's per-watcher Hub
+// uses this: it does its own per-watcher, per-identity Backend.GetFor
+// fan-out (with the per-event dedup cache) rather than receiving one
+// already-stitched object to broadcast. When a RawSink is set, the
+// EventSink/Stitcher broadcast path is bypassed.
+type RawSink interface {
+	OnMetadataEvent(et watch.EventType, ref ResourceRef, rv string)
+}
+
 // Stitcher turns a (Record, body) pair into the served object. The
 // metastore is body-agnostic: the REST adapter supplies a Stitcher
 // that knows how to fetch the body for a ref and overlay metadata.
@@ -143,6 +153,7 @@ type Store struct {
 	mu       sync.RWMutex
 	sink     EventSink
 	stitcher Stitcher
+	rawSink  RawSink
 }
 
 // Options configures a Store.
@@ -189,6 +200,15 @@ func (s *Store) SetStitcher(st Stitcher) {
 	s.stitcher = st
 }
 
+// SetRawSink wires the per-watcher Hub (experiment 0044). When set,
+// informer events are forwarded as (type, ref, rv) and the
+// EventSink/Stitcher broadcast path is skipped.
+func (s *Store) SetRawSink(rs RawSink) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rawSink = rs
+}
+
 // Start spins up the shared informer on the metadata CRD and begins
 // forwarding events. Blocks until the initial cache sync completes.
 func (s *Store) Start(ctx context.Context) error {
@@ -229,7 +249,16 @@ func (s *Store) handle(et watch.EventType, obj interface{}) {
 	s.mu.RLock()
 	sink := s.sink
 	st := s.stitcher
+	rawSink := s.rawSink
 	s.mu.RUnlock()
+
+	// Per-watcher Hub path (experiment 0044): forward raw event and
+	// skip the single-broadcaster stitch-and-publish path.
+	if rawSink != nil {
+		rawSink.OnMetadataEvent(et, ref, rv)
+		return
+	}
+
 	if sink == nil || st == nil {
 		return
 	}
@@ -273,7 +302,14 @@ func (s *Store) handleDelete(obj interface{}) {
 	s.mu.RLock()
 	sink := s.sink
 	st := s.stitcher
+	rawSink := s.rawSink
 	s.mu.RUnlock()
+
+	if rawSink != nil {
+		rawSink.OnMetadataEvent(watch.Deleted, ref, rv)
+		return
+	}
+
 	if sink == nil || st == nil {
 		return
 	}
