@@ -252,7 +252,12 @@ do not collide.
   whole-object storage CRD to the metadata-only stitched store.
   Primary fundamental: watch and consistency semantics; secondary:
   storage independence. Builds on 0024, 0025, 0034. Status:
-  in-progress.
+  complete — confirmed the metadata-CR host RV is a sound single
+  authority across Get/List/Watch with cross-replica resume; found
+  that the body must be on a *shared* CRD (a second cluster-scoped
+  `widgetbodies.widgetbody.aggexp.io`), not a per-replica in-memory
+  map, for multi-replica read consistency. See
+  `FINDINGS/0042-metadata-cr-rv-authority.md`.
 - **`0043-embedded-lock-emission-filtering`** — collapse 0032/0033's
   separate per-object lock into the 0024 metadata CR as an embedded
   `spec.lock` subfield, CAS'd on the CR's own resourceVersion. Probes
@@ -653,7 +658,11 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   backends' supplied RVs are advisory. Derived from `0025`.
   Sharpened and folded into the multi-replica library composition
   arc as `0042-metadata-cr-rv-authority` (RV authority on the host
-  metadata CR for the 0024 stitched store).
+  metadata CR for the 0024 stitched store). Closed by 0042: the
+  metadata CR's host etcd RV is a sound single authority across
+  Get/List/Watch with cross-replica resume; the Get/List-vs-Watch
+  split is resolved by surfacing exactly that one RV. See
+  `FINDINGS/0042-metadata-cr-rv-authority.md`.
 - `backend-pushes-bookmark-checkpoints` — push-capable backend
   emits mid-stream BOOKMARK events at its own RV checkpoints;
   middleware forwards them. Useful for long-lived watches where
