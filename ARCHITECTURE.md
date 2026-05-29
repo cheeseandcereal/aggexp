@@ -12,7 +12,7 @@ architecture actually shifts.
 
 ## Current state
 
-Four substrate promotions have landed.
+Five substrate promotions have landed.
 
 - **Promotion 1** (`runtime/{server, authz, storage, group}`) gave
   experiments the library-mode path: a Go consumer links against
@@ -37,6 +37,17 @@ Four substrate promotions have landed.
   concurrency, WatchList BOOKMARK, poll-mode consumer watch, status
   subresource helpers, CRD-backed shared storage, and Lease-based
   locking. Evidence: 0032-0040.
+- **Promotion 5** (`runtime/library/multihost/`) consolidates the
+  multi-replica library-composition arc (experiments 0042-0049).
+  Provides the multi-replica (multi-host) analogue of the
+  library-enhanced adapter: host-CR resourceVersion authority over a
+  stitched metadata/body CRD split, an embedded per-object lock with
+  the validated transactional write path, emission filtering,
+  pre-acquire OCC, per-watcher identity-carrying watch, and an
+  opt-in inline read-path reconcile. Each capability is independently
+  opt-in via an Options struct; the `runtime/storage.Backend`
+  interface is unchanged. Evidence: 0042, 0043, 0044, 0045, 0047,
+  0048, 0049.
 
 `drivers/` remains empty; no driver has met the two-consumer bar.
 
@@ -64,7 +75,26 @@ runtime/
 │   ├── crdstore.go           — CRD-backed shared storage (multi-replica)
 │   ├── locker.go             — Lease-based per-object locking
 │   ├── helpers.go            — shared utilities
-│   └── adapter_test.go       — unit tests
+│   ├── adapter_test.go       — unit tests
+│   │
+│   └── multihost/            — multi-replica library composition (Promotion 5)
+│       ├── doc.go            — overview + when-to-use + correctness model
+│       ├── ref.go            — ResourceRef, Record, LockState, CR naming
+│       ├── options.go        — Options + Converter/IdentityGate interfaces
+│       ├── metastore.go      — stitched metadata-CR store (host-RV authority);
+│       │                        raw CAS surface + transactional commit;
+│       │                        VisibleSignature (emission filter key)
+│       ├── bodystore.go      — shared body-CR store: RV-blind, identity-aware,
+│       │                        authoritative direct reads, push fan-out
+│       ├── lock.go           — embedded lock + the 0049 WriteTxn (both CAS
+│       │                        surfaces retried under the held lock; 409-not-500)
+│       ├── watch.go          — per-watcher Hub: identity-carrying pipelines,
+│       │                        re-homed emission filter, per-event dedup cache,
+│       │                        SharedPoll
+│       ├── adapter.go        — composed multi-host REST (read-path reconcile
+│       │                        opt-in, default off)
+│       ├── metrics.go        — counters (amplification + txn profile)
+│       └── multihost_test.go — unit tests (fake dynamic client + etcd sim)
 └── component/                — deployable component-server path
     ├── doc.go                — when to use component vs library
     ├── api.go                — v1 Options, NewOptions, AddFlags, Run
@@ -97,8 +127,10 @@ Approximate LOC for the substrate:
 - v2 (`runtime/component/v2`): ~4,565 lines Go + ~1,620 test lines.
 - v2 generated: ~2,500 lines proto bindings.
 - library (`runtime/library`): ~1,100 lines Go + ~450 test lines.
+- multihost (`runtime/library/multihost`): ~3,700 lines Go + ~840
+  test lines.
 
-### Four consumer shapes
+### Five consumer shapes
 
 An experiment that wants an aggregated API picks one of:
 
@@ -114,11 +146,20 @@ An experiment that wants an aggregated API picks one of:
    and optional multi-replica features (CRD store, locking). No
    additional code generation needed. Used by experiments
    0032-0040 individually; now consolidated.
-3. **Component mode, v1** — use `runtime/component.Run` in a tiny
+3. **Library mode (multi-host)** — the multi-replica variant of (2).
+   Use `runtime/library/multihost.New` with a consumer-supplied
+   `Converter`, a metadata CRD (the RV authority) and a shared body
+   CRD. Gains host-CR RV authority across replicas, an embedded
+   per-object lock with the transactional write path, per-watcher
+   identity-scoped watch, and optional inline read-path reconcile.
+   Best for a multi-replica StatefulSet behind a load-balanced
+   Service that needs cross-replica read/list/watch consistency and
+   safe concurrent writes. Validated by experiments 0042-0049.
+4. **Component mode, v1** — use `runtime/component.Run` in a tiny
    main, implement the v1 `runtime/component/proto.Backend` gRPC
    service in a separate process. Used by 0013, 0017, 0018, 0021.
    The backend can be any language.
-4. **Component mode, v2** — use `runtime/component/v2` packages.
+5. **Component mode, v2** — use `runtime/component/v2` packages.
    Same core contract but with: state split (metadata on host CRD,
    business data on backend), unified RV authority,
    initial-events-end BOOKMARK, declarative admission, dual
@@ -187,6 +228,111 @@ extension apiserver (built on runtime/server)
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### `runtime/library/multihost` design principles
+
+Multihost is the multi-replica analogue of library-enhanced mode. It
+keeps the dependency-light `runtime/library` core intact and lives in
+a subpackage because, like `crdstore.go`/`locker.go`, its features
+need `k8s.io/client-go` dynamic informers and host CRDs.
+
+- **Composable, opt-in via an Options struct.** The multi-host store,
+  the embedded lock, the per-watcher watch, and the read-path
+  reconcile are independently selectable. A consumer that wants only
+  host-RV authority + cross-replica reads turns off Lock and Watch's
+  fancier modes.
+- **Same Backend interface; new stores on top.**
+  `runtime/storage.Backend`/`WritableBackend` are unchanged. Multihost
+  provides a `MetaStore`, a `BodyStore`, and a composed `REST` adapter.
+- **Consumer provides a Converter.** As with `crdstore.go`'s
+  `CRDStoreConverter`, the consumer supplies the unstructured↔typed
+  mapping for the metadata and body CRs (`Converter`: New, NewList,
+  BodyFromObject, Stitch, RecordFromObject). The substrate is not
+  magically generic over the served type.
+- **One RV authority.** The metadata CR's host etcd resourceVersion is
+  stamped uniformly on Get/List/Watch. The body CR is RV-blind. Both
+  halves must be host-reachable from every replica (a node-local body
+  backend breaks cross-replica reads — 0042).
+- **The lock is an admission gate; the transactional write path is
+  correctness.** The validated 0049 write path (`WriteTxn`) is the
+  default: acquire → body Put → metadata commit are retried as a unit
+  on a CAS conflict at *either* the body or the commit surface, so a
+  cross-replica race surfaces as a clean 409, never a 500. The
+  uncontended fast path adds zero writes.
+- **Read-path reconcile is opt-in, default off.** It trades the
+  tolerant-Get sharp edge for 1:1 read amplification (0045) — a
+  workload-dependent choice. Off by default; the periodic-sweep GC
+  shape (`ReconcileList` with fromSweep=true) is the fallback.
+
+### Per-request flow (library mode, multi-host)
+
+```
+kubectl  ─HTTPS→  kube-apiserver (aggregation, mTLS, X-Remote-*)
+                      │
+                      ▼
+  extension apiserver replica N  (runtime/server + multihost.REST)
+      │
+      ├─ Get/List:
+      │     (reconcile off, default) BodyStore informer cache read,
+      │        stitch with MetaStore informer-cached Record (host RV)
+      │     (reconcile on, opt-in)  BodyStore.GetAuthoritative direct
+      │        read → adopt/collect inline (1:1 amplification)
+      │     identity gate (owner vs caller) on every served object
+      │
+      ├─ Create/Update:  locker.WriteTxn
+      │     pre-acquire OCC (client RV vs pre-acquire host RV)
+      │     acquire embedded lock (CAS on metadata-CR RV)
+      │     BodyStore.Put  (CAS surface #1, RV-blind body CR)
+      │     metadata commit + lock release (CAS surface #2, RV authority)
+      │     retry the pair on either CAS conflict; 409 on budget exhaust
+      │
+      └─ Watch:  per-watcher pipeline carrying caller user.Info
+            initial owner-filtered RV-stamped replay + BOOKMARK
+            live source: per-watcher push/poll, or shared system poll
+            shared MetaStore informer = single RV authority + trigger
+               → re-homed emission filter (suppress lock/renewal churn)
+               → per-event (identity,ns,name) GetFor dedup cache
+```
+
+All replicas observe the same metadata-CR etcd RV stream, so
+cross-replica resume-by-RV and read/list consistency hold regardless
+of which replica the aggregation layer routes to.
+
+### Deployment shape (multi-host)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  kind cluster                                                 │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  kube-apiserver  ── aggregation (mTLS) ──┐               │  │
+│  │                                          ▼               │  │
+│  │  load-balanced Service → StatefulSet (N replicas)        │  │
+│  │     each: runtime/server + multihost.REST                │  │
+│  │       MetaStore informer ─┐                              │  │
+│  │       BodyStore informer ─┤  (host CRDs, every replica)  │  │
+│  │                           ▼                              │  │
+│  │   resourcemetadatas.<meta-group>   (RV authority + lock) │  │
+│  │   widgetbodies.<body-group>        (RV-blind shared body)│  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Deployment shape (single-replica, unchanged)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  kind cluster                                               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  kube-apiserver                                       │  │
+│  │     │ aggregation (mTLS)                              │  │
+│  │     ▼                                                 │  │
+│  │  extension apiserver pod                              │  │
+│  │     runtime/server + runtime/library.REST             │  │
+│  │     (optional: CRDStore informer → host CRD)         │  │
+│  │     (optional: LockedBackend → Leases)               │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ## What is *not* in runtime/
 
 - Per-group Schemes, types, install packages. Those stay with the
@@ -209,6 +355,8 @@ extension apiserver (built on runtime/server)
   consolidates 0022-0029.
 - **2026-05-28** — fourth promotion. `runtime/library/`
   consolidates 0032-0040 production-library-readiness arc.
+- **2026-05-29** — fifth promotion. `runtime/library/multihost/`
+  consolidates 0042-0049 multi-replica library-composition arc.
 
 ## Known library gaps
 
@@ -231,6 +379,46 @@ extension apiserver (built on runtime/server)
   The library propagates Continue/RemainingItemCount on list-type
   ConvertToTable; edge cases with mixed table sources are
   experiment-specific.
+
+## Known multihost gaps
+
+These are limits of Promotion 5 specifically, separate from the
+single-replica library gaps above.
+
+- **Generated bare-`$ref` SSA gap is out of scope here.** The 0048
+  capstone surfaced that an OpenAPI-first generator emitting a bare
+  `$ref` nested object trips the SSA typed-converter / strict decoder
+  (`spec.X.true` phantom). That is a property of the *generator*
+  (an 0046 concern), not of multi-host machinery — the multihost
+  stores carry whatever served type the consumer supplies and never
+  inspect its schema. It remains an open generator-side follow-on and
+  is explicitly NOT addressed by this promotion. A consumer whose
+  generated schema has this shape will hit it on `apply --server-side`
+  regardless of multihost.
+- **Read amplification when reconcile is enabled.** With
+  `ReadPathReconcile` on, every Get/List is a direct (authoritative)
+  backend round-trip — 1:1 amplification by construction (0045). The
+  optional negative cache reduces it but reintroduces a bounded
+  staleness window against out-of-band backend mutation. Default off;
+  enabling it is a workload-dependent trade.
+- **Lock-contention write ceiling (0047).** The embedded
+  lock-on-RV-authority-CR design carries an inherent ~2× host-write
+  amplification per served write (acquire + commit), plus a tunable
+  renewal term on slow ops, plus one body-CR write. On single-node
+  etcd the first binding constraint is lock-contention fail-fast on
+  hot objects (writers ≈ 2× the hot-object count collapse aggregate
+  throughput on 409s), not etcd write bandwidth. Per-watcher watch is
+  read-only against the RV authority, so watcher scale and write scale
+  are independent axes.
+- **No bundled periodic sweep goroutine.** `ReconcileList(fromSweep:
+  true)` is provided as the GC primitive, but the consumer owns
+  scheduling it (interval, debug endpoint). The substrate does not
+  spawn the sweep loop.
+- **First-watch-event stitch race (mild, inherited from 0048).** The
+  per-watcher live source can fire before the metadata informer has
+  the record cached, so the very first event for a freshly created
+  object can carry a synthetic UID until the next event. Ecosystem
+  clients tolerate it (the real UID arrives on the follow-up).
 
 ## Anticipated next substrate work (not commitments)
 
