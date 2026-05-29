@@ -1,8 +1,9 @@
-// Command watchload is a scenario-2/3/4 load generator for experiment
-// 0044. It opens N concurrent watches against aggexp.io/v1 widgets as
-// an impersonated identity (or a set of identities) and holds them
-// open for a duration, so the AA's backend-call counters can be read
-// from its logs as a function of N and mode.
+// Command watchload is a watcher-pool load generator originally from
+// experiment 0044, reused unchanged by 0047. It opens N concurrent
+// watches against aggexp.io/v1 widgets as an impersonated identity (or
+// a set of identities) and holds them open for a duration, so the AA's
+// backend-call counters can be read from its logs as a function of N
+// and mode.
 //
 // Not part of the served apiserver; a throwaway lab tool.
 package main

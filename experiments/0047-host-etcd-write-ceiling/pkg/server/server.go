@@ -1,5 +1,5 @@
 // Package server wires the substrate's generic Options into
-// experiment 0044's scheme + stitched metadata-CR store with host-RV
+// experiment 0047 (composed 0043+0044) scheme + stitched metadata-CR store with host-RV
 // authority and a per-watcher, identity-aware Widget body backend.
 package server
 
@@ -228,7 +228,7 @@ func (o *Options) Run(ctx context.Context) error {
 			klog.InfoS("shared-poll-loop-started", "replica", replicaID, "interval", o.PollInterval)
 		}
 		// Instrumentation: periodically log backend + hub counters so
-		// the 0044 scenarios can read backend-call volume, watcher
+		// the 0047 scenarios can read backend-call volume, watcher
 		// count, and Get-cache hit/miss from the logs.
 		go func() {
 			t := time.NewTicker(o.MetricsInterval)
