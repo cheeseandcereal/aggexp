@@ -267,7 +267,12 @@ do not collide.
   surface as spurious MODIFIED events; and the optimistic-concurrency
   check (0039) must compare against the pre-acquire RV. Primary
   fundamental: watch and consistency semantics. Builds on 0042 (and
-  0032/0033/0039). Status: in-progress.
+  0032/0033/0039). Status: complete — embedded lock works as a single
+  CAS surface (2 CR writes per served write); emission filtering is
+  *required* (load-bearing on the Update/renewal path), not optional
+  polish; pre-acquire OCC ordering holds under contention; deleting the
+  host CR releases the lock for free (no separate-lock GC). See
+  `FINDINGS/0043-embedded-lock-emission-filtering.md`.
 - **`0044-per-watcher-watch-identity`** — invert the single-global
   watch of 0025/0034: open one backend watch (push) or poll loop
   (poll) *per client watch subscription*, each carrying that caller's
@@ -277,7 +282,15 @@ do not collide.
   the per-event cross-replica Get cost, and compares against a shared,
   deduplicated, system-identity poll. Primary fundamental: watch and
   consistency semantics; secondary: identity handoff, per-request
-  authorization. Builds on 0042 (and 0025/0034). Status: in-progress.
+  authorization. Builds on 0042 (and 0025/0034). Status: complete —
+  per-watcher watch is a viable generalization; per-user authz on watch
+  works (push and poll); cost is linear backend access in N (one
+  Watch/poll loop per subscription) but the per-event cross-replica Get
+  is sublinear via an `(identity,ns,name)` dedup cache (66–96% hit rate
+  as watchers share identity); `--shared-poll` recovers the flat
+  single-global-watch cost when per-user watch authz isn't needed;
+  internal upstream multiplex is a ~30-LOC backend convention. See
+  `FINDINGS/0044-per-watcher-watch-identity.md`.
 - **`0045-read-path-reconcile-amplification`** — treat the backend as
   the source of truth for object existence: reconcile the metadata
   store against the backend *inline* on Get/List (adopt unknown
@@ -287,7 +300,14 @@ do not collide.
   (every Get reaches the backend; 404-heavy and high-QPS read
   patterns) and the adoption noise on a shared backend. Primary
   fundamental: storage independence; secondary: resource modeling
-  freedom. Builds on 0042 (and 0024/0028). Status: in-progress.
+  freedom. Builds on 0042 (and 0024/0028). Status: complete — inline
+  reconcile cleanly removes the 0028 tolerant-Get sharp edge (a backend
+  404 is a 404 regardless of finalizers), but trades it for 1:1 backend
+  read amplification by construction; the obvious mitigation (a negative
+  cache) reintroduces a bounded staleness window that compromises the
+  source-of-truth invariant, so only a push/watch-driven cache preserves
+  both. Recorded as a real fork in the split-store design space. See
+  `FINDINGS/0045-read-path-reconcile-amplification.md`.
 - **`0046-openapi-first-codegen`** — build the generator 0023 pointed
   at but did not implement: consume a hand-authored OpenAPI v3
   document and emit Go types, deepcopy methods, dual-version (external
