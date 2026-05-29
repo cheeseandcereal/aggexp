@@ -18,7 +18,8 @@ provide the evidence.
 
 ## Current state
 
-Informed by thirty-nine experiments and three substrate promotions:
+Informed by forty-eight experiments and four substrate promotions
+(a fifth, the multi-replica composition, is pending):
 
 - `FINDINGS/0001-raw-http-aggregation` through `FINDINGS/0021-runtime-component-parity`
   — see earlier listing.
@@ -583,6 +584,27 @@ RPC rather than adding an `Exists(ids)` RPC costs nothing at
 lab scale; at ≥10⁴-record scale, paginated List or a real
 `Exists` RPC becomes necessary — a proto-v2 concern.
 
+**Making the backend the source of truth for existence removes
+0028's tolerant-Get sharp edge but trades it for read
+amplification** [`0045`]. 0028's periodic sweep left a sharp edge:
+a finalizer-protected record whose backend object had vanished made
+the stitched Get 404 through the absent backend, so an operator had
+to hand-edit the metadata CR. 0045 moves the reconcile *inline* onto
+the read path — Get and List query the backend directly, adopt
+unknown backend objects, and collect orphan records (subject to a
+~30s minAge grace) — so existence has exactly one authority and a
+backend 404 is a 404 regardless of finalizers. The cost is **1:1
+read amplification**: every Get reaches the backend, so a flood of
+Gets for non-existent names becomes a flood of backend calls. The
+obvious mitigation, a negative/short-TTL existence cache, reintroduces
+a bounded staleness window that *compromises the very
+source-of-truth invariant* (it masks out-of-band creates for the
+TTL); only a push/watch-driven cache preserves both. This is a real
+fork in the split-store design space — single authority with read
+amplification vs. dual stores with a GC obligation — not a strict
+win for either, and the choice is workload-dependent (404-heavy /
+high-QPS read patterns punish the inline model).
+
 **Async backends cost two specific ecosystem idioms** [`0011`].
 `kubectl wait --for=jsonpath=...` fails against our AA because
 the substrate doesn't emit the `k8s.io/initial-events-end` bookmark
@@ -928,6 +950,95 @@ dependency that the aggregated-API architecture is meant to avoid;
 RV authority alone does not make an object readable on a replica
 that never saw the body.
 
+**A per-object write lock can be embedded in the metadata CR rather
+than living as a separate object, and emission filtering is then
+*required*, not optional** [`0043`]. Collapsing 0032/0033's separate
+Lease/CAS lock into a `spec.lock` subfield on the metadata CR — CAS'd
+on the CR's own resourceVersion — yields a single CAS surface whose
+lifecycle is bound to the object: deleting the host CR releases the
+lock for free, eliminating the orphaned-lease window and separate-lock
+GC that the standalone designs carried. The cost is resourceVersion
+churn: lock acquire, commit-release, and renewal heartbeats each write
+the CR and fire the metadata informer. This makes **watch-emission
+filtering load-bearing** — the watch path must suppress any transition
+whose only delta is within `spec.lock`, comparing a visible-signature
+(observed body hash + served KRM metadata) against the last emitted,
+or every write surfaces as three MODIFIED events and every slow op
+adds a spurious MODIFIED per renewal. Two further couplings appear:
+the optimistic-concurrency check (0039) must compare the client's RV
+against the RV captured *before* lock acquisition (acquisition bumps
+the CR's RV mid-operation), and the served object's RV advances
+opaquely across lock writes — clients tolerate the gaps.
+
+**Per-watcher watch — one backend subscription per client watch,
+carrying the caller's identity — is a viable generalization of the
+single-global-watch shape, and it decouples watcher scale from write
+scale** [`0044`, `0047`]. Inverting 0025/0034's single fanned-out
+watch so each subscription drives its own `Backend.Watch`/`List` with
+the caller's `user.Info` delivers per-user authorization *on the watch
+stream itself* (a watcher sees only objects it may see), in both push
+and poll modes — the identity-handoff thread (0003/0006/0016) finally
+applied to watch. The cost is linear backend access in the watcher
+count N (one upstream subscription or poll loop per watcher), but the
+per-event cross-replica `Backend.Get` is *sub*linear: an
+`(identity, ns, name)` dedup cache scoped to a single event fan-out
+hits 66–96% as watchers share an identity. An opt-in `--shared-poll`
+(one system-identity loop for all watchers) recovers the flat
+single-global-watch cost when per-user watch authz isn't needed; the
+crossover is governed by per-call backend cost × watchers-per-identity,
+not raw N. Critically, per-watcher watch is *read-only* against the RV
+authority — 0047 measured zero extra metadata-CR writes from watchers
+regardless of N — so **watcher scale and write scale are independent
+axes**. Internal upstream multiplexing (one real stream serving many
+per-watcher channels by filtering) is a ~30-LOC backend convention,
+not framework machinery.
+
+**Co-locating the lock on the RV-authority CR has an inherent
+write-amplification property, but its first binding ceiling is lock
+contention, not etcd bandwidth** [`0047`]. Every served write costs
+exactly two writes to the metadata CR (acquire + commit-release) plus
+one body-CR write — three host writes per served write, flat across
+rate — and ~3·(op_duration/lease) extra writes per slow op from
+renewal heartbeats (a linear renewal-rate ↔ takeover-latency
+tradeoff). This amplification is fundamental to the co-location
+decision, not to etcd. Yet on single-node kind etcd the *first*
+constraint reached is lock-contention fail-fast on hot objects
+(throughput knee ~96 served writes/s at ~32 concurrent writers, beyond
+which 409s explode and throughput regresses), while etcd write
+bandwidth scaled to ~254 writes/s uncontended with latency barely
+moving. These rates are consequents of single-node kind etcd — a
+lower-bound proxy for production — but the *shape* (lock contention
+binds before etcd bandwidth on hot objects) generalizes.
+
+**The mechanisms compose into one multi-replica AA indistinguishable
+from a built-in on the happy path, but composition surfaces three
+interferences the isolated experiments missed** [`0048`]. The capstone
+wired 0042's RV authority, 0043's embedded lock + emission filtering +
+pre-acquire OCC, 0044's per-watcher watch, 0045's read-path reconcile,
+and 0046's generated types into a single 3-replica AA and exercised it
+with kubectl, a client-go reflector, and a controller-runtime manager
+(reconcile + finalizer): all passed, including SSA with conflict
+detection, `explain`, `wait`, pod-restart-under-watch with UID/RV
+persistence, and an all-`expect`-PASS compat scoreboard. The three
+composition-only interferences are the genuinely new knowledge: (1) a
+generated bare-`$ref` *nested object* breaks strict-decode and the SSA
+typed-converter — 0046's isolated SSA test only drove scalar fields, so
+the capstone was the first to push a `$ref` object through create/SSA;
+(2) the embedded lock serializes *acquisition* but not the post-acquire
+body and commit writes, so under genuine cross-replica concurrency some
+losers receive 500s (a CAS conflict on commit) rather than clean 409s,
+because only the acquire path retries — the lock is an admission gate,
+not a transaction; (3) the per-watcher event source can fire ahead of
+the metadata informer, so a fresh object's first ADDED can carry an
+empty UID (clients tolerate it). The first two are real design gaps a
+substrate promotion must address (retry the commit path under the held
+lock, or treat acquire+commit as one CAS sequence; constrain or
+post-process generated `$ref` objects). This is the same integration
+question 0031 and 0041 answered for their arcs, with a sharper answer:
+the composition holds for reads, watch, and uncontended writes, and
+needs a transactional write path to hold under cross-replica write
+contention.
+
 Still unmeasured:
 
 - CA rotation with simultaneous `APIService.caBundle` rotation.
@@ -939,7 +1050,7 @@ Still unmeasured:
 
 ## Process observations
 
-Ten observations after thirty experiments and three substrate
+Twelve observations after forty-eight experiments and four substrate
 promotions:
 
 1. **Findings proportional to signal** holds. Dense experiments
@@ -1039,13 +1150,39 @@ promotions:
     and surfaced six concrete v2.1 rough edges from the
     consumer perspective. The two-step (promote, then parity
     probe) mirrors the 0021 pattern for the v1 substrate and
-    remains the recommended shape for future substrate
-    promotions. Total arc wallclock: eleven sub-agent dispatches
-    across four phases, ten experiments + one promotion.
+     remains the recommended shape for future substrate
+     promotions. Total arc wallclock: eleven sub-agent dispatches
+     across four phases, ten experiments + one promotion.
+11. **A fourth arc (production-library-readiness, 0032-0040) and a
+    fifth (multi-replica library composition, 0042-0048) both held
+    the phased-parallel pattern at larger scale.** The multi-replica
+    arc ran 0042+0046 (Phase 0), 0043/0044/0045 (Phase 1, each copying
+    0042's completed core), and 0047/0048 (Phase 2) as parallel
+    sub-agents, merging serially at wave boundaries. Forking Phase 1
+    only *after* 0042 was fully complete and frozen — rather than from
+    a code-stable midpoint — paid off: the shared-body-CRD finding
+    (below) was already baked into the copied core, so no Phase 1 agent
+    rediscovered it. Passing each prior wave's load-bearing finding
+    explicitly into the next wave's dispatch prompts is what prevents
+    the rediscovery failure mode; the wave boundary is where that
+    hand-off happens.
+12. **The kubeconfig-context-drift hazard (obs. 2, 7) recurred and
+    now has a concrete in-prompt mitigation.** Multiple Phase 1 agents
+    independently observed the shared kubeconfig's current-context
+    drifting under parallel runs and hardened by pinning
+    `--context kind-aggexp-00NN` on every kubectl/hack invocation
+    rather than relying on `use-context`. This is more robust than the
+    per-experiment `KUBECONFIG` env var (obs. 7) because it survives a
+    sibling agent's `use-context` call. Promote to an AGENTS.md
+    parallel-dispatch rule: pin `--context` explicitly; never rely on
+    the global current-context during parallel work.
 
-The ethos itself needs no changes yet. The stateful-middleware
-arc completed fully; MVP-lab and MVP-example commitments are
-both intact; substrate has three generations with v1 and v2
-coexisting. If a pattern emerges of experiments going longer
-than they need to, or of SYNTHESIS falling out of sync with
-FINDINGS, revisit.
+The ethos itself needs no changes yet. Two more arcs completed fully;
+MVP-lab and MVP-example commitments are both intact; substrate has
+four promotions with v1, v2, and library coexisting, and a fifth
+(multi-replica composition) pending. The 0048 capstone's
+composition-only interferences (the lock is an admission gate not a
+transaction; generated `$ref` objects break SSA) are the open design
+questions a fifth promotion must resolve. If a pattern emerges of
+experiments going longer than they need to, or of SYNTHESIS falling
+out of sync with FINDINGS, revisit.
