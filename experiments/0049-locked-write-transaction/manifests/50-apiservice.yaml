@@ -1,0 +1,22 @@
+# APIService claiming the served group/version v1.widgets.aggexp.io
+# (the 0046-generated group). Points at the load-balanced `aggexp`
+# Service by default; hack/pin-replica.sh flips spec.service.name to a
+# per-pod Service for cross-replica scenarios.
+#
+# insecureSkipTLSVerify: true — when pinned to a per-pod Service
+# (aggexp-0/1/2), the aggregation layer dials a name not in the lab
+# serving cert's SANs. Lab convenience (recorded as a Decision).
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1.widgets.aggexp.io
+spec:
+  group: widgets.aggexp.io
+  version: v1
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service:
+    name: aggexp
+    namespace: aggexp-system
+    port: 443
+  insecureSkipTLSVerify: true

@@ -20,7 +20,7 @@ in-progress
 
 ## Prior findings this builds on
 
-- `FINDINGS/0048-library-multireplica-vertical-slice.md` — surfaced the
+- `FINDINGS/0049-locked-write-transaction.md` — surfaced the
   gap: the lock serializes acquisition but not commit, so cross-replica
   losers can get 500s instead of 409s; only the acquire path retries.
 - `FINDINGS/0043-embedded-lock-emission-filtering.md` — the embedded
