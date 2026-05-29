@@ -1,0 +1,36 @@
+# Generator configuration for cmd/oapigen. Pairs with
+# widget.openapi.yaml. Tells the generator how to map the plain
+# OpenAPI components into a Kubernetes resource.
+group: widgets.aggexp.io
+version: v1
+kind: Widget
+plural: widgets
+singular: widget
+namespaced: true
+
+# Names of the component schemas (in the OpenAPI document) that become
+# the resource's .spec and .status. Both are optional; if specStig is
+# empty the resource has no spec, etc. (Widget has both here.)
+specComponent: WidgetSpec
+statusComponent: WidgetStatus
+
+# Fields (dotted paths) that may be used in --field-selector queries,
+# beyond metadata.name / metadata.namespace which are always allowed.
+# The generator emits AddFieldLabelConversionFunc registration plus a
+# FieldAccessor for these.
+listSelectableFields:
+  - spec.color
+  - spec.size
+  - status.phase
+
+# Output package directory (relative to the experiment root). The
+# generator writes the *.go files here. Committed so the diff is
+# reviewable and reproducibility is checkable.
+outputDir: pkg/apis/widgets/v1
+
+# Go package name for the generated external version.
+package: v1
+
+# Go import path of the generated external version package. Used to key
+# the openapi-gen definitions map and for cross-package references.
+goPackagePath: github.com/cheeseandcereal/aggexp/experiments/0046-openapi-first-codegen/pkg/apis/widgets/v1
