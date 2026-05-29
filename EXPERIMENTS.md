@@ -215,6 +215,105 @@ substrate promotion in Phase 3 if warranted.
   Demonstrates push vs poll consumer-side watch ergonomics.
   Status: candidate.
 
+## Multi-replica library composition arc (0042-0048)
+
+Promotion 4 (`runtime/library`, experiment 0041) consolidated the
+single-replica capabilities. It left the multi-replica story as a set
+of independently-validated fragments that have never been composed
+into one coherent whole: 0024's stitched metadata-CRD store, 0032 and
+0033's *separate* lock objects, 0034's host-CRD-RV cross-replica watch
+(over a *whole-object* storage CRD, not the stitched store), 0028's
+periodic-sweep GC, and the resourceVersion-authority split 0025
+surfaced — which the `rv-authority-unification` candidate named but
+never closed.
+
+This arc asks whether those fragments compose into a single coherent
+multi-replica library-mode story keyed on one host-CRD RV authority,
+and what the composition costs: RV churn from co-locating a lock with
+metadata, host-etcd write volume under the RV pump, per-watcher watch
+cost when each client subscription carries its own identity, and read
+amplification when the backend is treated as the source of truth for
+existence. It also builds the OpenAPI-first code generator that 0023's
+schema-source exploration recommended (Track B, middleware-synthesized
+schema) but never implemented for the library-mode typed path.
+
+Phasing: 0042 and 0046 are independent and start in parallel (Phase
+0). 0043 / 0044 / 0045 each build on 0042 and run in parallel (Phase
+1). 0047 and 0048 integrate (Phase 2). Each experiment uses its own
+kind cluster (`aggexp-00NN`) and its own `go.mod` (per 0034) and
+duplicates rather than imports the others' code, so parallel worktrees
+do not collide.
+
+- **`0042-metadata-cr-rv-authority`** — unify the resourceVersion
+  authority on the host metadata CR for the 0024 *stitched* model (KRM
+  metadata on a cluster-scoped CR, business body on the backend),
+  closing the Get/List-vs-Watch RV split 0025 surfaced for the
+  storage-axis variant and extending 0034's host-RV result from a
+  whole-object storage CRD to the metadata-only stitched store.
+  Primary fundamental: watch and consistency semantics; secondary:
+  storage independence. Builds on 0024, 0025, 0034. Status:
+  in-progress.
+- **`0043-embedded-lock-emission-filtering`** — collapse 0032/0033's
+  separate per-object lock into the 0024 metadata CR as an embedded
+  `spec.lock` subfield, CAS'd on the CR's own resourceVersion. Probes
+  the consequences of co-location: lock acquire/release/renewal
+  advance the served object's RV and fire the metadata informer (RV
+  churn), requiring watch-emission filtering so lock writes don't
+  surface as spurious MODIFIED events; and the optimistic-concurrency
+  check (0039) must compare against the pre-acquire RV. Primary
+  fundamental: watch and consistency semantics. Builds on 0042 (and
+  0032/0033/0039). Status: in-progress.
+- **`0044-per-watcher-watch-identity`** — invert the single-global
+  watch of 0025/0034: open one backend watch (push) or poll loop
+  (poll) *per client watch subscription*, each carrying that caller's
+  `user.Info`, so backends can enforce per-user authorization on watch
+  streams (the identity-handoff thread from 0003/0006/0016 applied to
+  watch). Measures the backend-call cost as watcher count grows and
+  the per-event cross-replica Get cost, and compares against a shared,
+  deduplicated, system-identity poll. Primary fundamental: watch and
+  consistency semantics; secondary: identity handoff, per-request
+  authorization. Builds on 0042 (and 0025/0034). Status: in-progress.
+- **`0045-read-path-reconcile-amplification`** — treat the backend as
+  the source of truth for object existence: reconcile the metadata
+  store against the backend *inline* on Get/List (adopt unknown
+  backend objects, collect records whose backend object is gone)
+  rather than only on 0028's periodic sweep, removing the tolerant-Get
+  sharp edge 0028 flagged. Measures the read amplification this causes
+  (every Get reaches the backend; 404-heavy and high-QPS read
+  patterns) and the adoption noise on a shared backend. Primary
+  fundamental: storage independence; secondary: resource modeling
+  freedom. Builds on 0042 (and 0024/0028). Status: in-progress.
+- **`0046-openapi-first-codegen`** — build the generator 0023 pointed
+  at but did not implement: consume a hand-authored OpenAPI v3
+  document and emit Go types, deepcopy methods, dual-version (external
+  + internal) scheme registration, openapi-gen-shaped definitions
+  (with the `x-kubernetes-group-version-kind` extension, the
+  ObjectMeta reference-callback, and the Dependencies list that
+  0002/0017/0024 found load-bearing for SSA and explain), and
+  field-label conversions (0037). Confirms `kubectl explain` and
+  `kubectl apply --server-side` parity on the generated types, and
+  records the OpenAPI-parsing tooling-of-record decision. Primary
+  fundamental: wire protocol fidelity; secondary: resource modeling
+  freedom. Independent of the rest of the arc. Status: in-progress.
+- **`0047-host-etcd-write-ceiling`** — measure the host
+  kube-apiserver / etcd write rate produced by composing 0042's
+  observed-body-hash RV pump, 0043's embedded-lock
+  acquire/release/renewal churn, and 0044's per-watcher poll
+  multiplication, under realistic event / write / watcher counts.
+  Finds the scaling ceiling. Largely consequent (tied to host etcd
+  performance) but operationally load-bearing. Builds on 0043 and
+  0044. Status: in-progress.
+- **`0048-library-multireplica-vertical-slice`** — capstone: compose
+  0042 (RV authority) + 0043 (embedded lock) + 0044 (per-watcher
+  watch) + 0045 (read-path reconcile) and the 0046-generated types
+  into a single multi-replica library-mode aggregated apiserver on an
+  in-memory backend, and exercise it with the compat scoreboard
+  (`hack/test-compat.sh`), a client-go reflector/informer, and a
+  controller-runtime reconcile loop. Answers whether the fragments
+  compose without mutual interference (the integration question
+  0031/0041 asked for their respective arcs). Primary fundamental:
+  wire protocol fidelity. Builds on 0042-0046. Status: in-progress.
+
 ---
 
 ## Wire protocol fidelity
@@ -552,6 +651,9 @@ See `FINDINGS/0018-krm-component-parity-s3.md`.
   makes reflector relist-with-RV semantically inconsistent.
   Default recommendation: middleware owns RV end-to-end;
   backends' supplied RVs are advisory. Derived from `0025`.
+  Sharpened and folded into the multi-replica library composition
+  arc as `0042-metadata-cr-rv-authority` (RV authority on the host
+  metadata CR for the 0024 stitched store).
 - `backend-pushes-bookmark-checkpoints` — push-capable backend
   emits mid-stream BOOKMARK events at its own RV checkpoints;
   middleware forwards them. Useful for long-lived watches where
